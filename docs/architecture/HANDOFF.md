@@ -41,9 +41,9 @@ Torrify provides:
 
 ---
 
-## Current Status: Pre-release (0.9.2) ✅
+## Current Status: Pre-release (0.9.3) ✅
 
-**Version:** 0.9.2 (Pre-release; one more release before v1.0)
+**Version:** 0.9.3 (Pre-release; one more release before v1.0)
 **Date:** February 2, 2026
 **Status:** Security hardening complete, licensing finalized (GPLv3). Pre-release checklist completed and retired; code is release-ready (code signing deferred).
 **Test Coverage:** Run `npm test` for the current count.
