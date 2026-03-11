@@ -1,3 +1,5 @@
+import { logger } from '../../utils/logger'
+
 interface WorkerRenderRequest {
   readonly id: string
   readonly type: 'render'
@@ -37,12 +39,29 @@ export class OpenScadWasmRenderer {
 
       window.clearTimeout(pending.timeoutId)
       this.pending.delete(response.id)
+      if (!response.success) {
+        logger.error('OpenSCAD worker reported a render failure', {
+          requestId: response.id,
+          error: response.error
+        })
+      }
       pending.resolve(response)
     }
     worker.onerror = (event: ErrorEvent) => {
-      const message = event.message || 'OpenSCAD worker crashed'
-      this.rejectAll(new Error(message))
-      this.terminate()
+      const message =
+        event.message || (event.error instanceof Error ? event.error.message : '') || 'OpenSCAD worker crashed'
+      logger.error('OpenSCAD worker runtime error', {
+        message,
+        filename: event.filename,
+        lineno: event.lineno,
+        colno: event.colno,
+        error: event.error
+      })
+      this.terminate(message)
+    }
+    worker.onmessageerror = () => {
+      logger.error('OpenSCAD worker message channel failed')
+      this.terminate('OpenSCAD worker message channel failed')
     }
 
     this.worker = worker
@@ -57,12 +76,12 @@ export class OpenScadWasmRenderer {
     }
   }
 
-  terminate(): void {
+  terminate(reason = 'OpenSCAD worker terminated'): void {
     if (this.worker) {
       this.worker.terminate()
       this.worker = null
     }
-    this.rejectAll(new Error('OpenSCAD worker terminated'))
+    this.rejectAll(new Error(reason))
   }
 
   async renderStl(code: string, timeoutMs: number): Promise<WorkerRenderResponse> {
@@ -80,8 +99,14 @@ export class OpenScadWasmRenderer {
     const response = await new Promise<WorkerRenderResponse>((resolve, reject) => {
       const timeoutId = window.setTimeout(() => {
         this.pending.delete(id)
-        this.terminate()
-        reject(new Error(`OpenSCAD WASM render timed out after ${Math.round(timeoutMs / 1000)}s`))
+        const message = `OpenSCAD WASM render timed out after ${Math.round(timeoutMs / 1000)}s`
+        logger.error('OpenSCAD WASM render timed out', {
+          requestId: id,
+          timeoutMs,
+          codeLength: code.length
+        })
+        this.terminate(message)
+        reject(new Error(message))
       }, timeoutMs)
 
       this.pending.set(id, { resolve, reject, timeoutId })
@@ -97,4 +122,3 @@ export class OpenScadWasmRenderer {
     return response
   }
 }
-

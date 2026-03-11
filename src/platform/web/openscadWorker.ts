@@ -16,6 +16,53 @@ interface RenderResponse {
 }
 
 let openscadPromise: Promise<OpenSCADInstance> | null = null
+const recentWorkerLogs: string[] = []
+const MAX_RECENT_LOGS = 20
+
+function rememberWorkerLog(text: string): void {
+  const normalized = text.trim()
+  if (!normalized) {
+    return
+  }
+
+  recentWorkerLogs.push(normalized)
+  if (recentWorkerLogs.length > MAX_RECENT_LOGS) {
+    recentWorkerLogs.splice(0, recentWorkerLogs.length - MAX_RECENT_LOGS)
+  }
+}
+
+function resetWorkerLogs(): void {
+  recentWorkerLogs.length = 0
+}
+
+function getRecentWorkerError(): string | undefined {
+  const prioritized = recentWorkerLogs.filter((line) => /error|failed|exception/i.test(line))
+  const relevant = prioritized.length > 0 ? prioritized : recentWorkerLogs
+  if (relevant.length === 0) {
+    return undefined
+  }
+
+  return relevant.slice(-3).join(' | ')
+}
+
+function formatRenderError(error: unknown): string {
+  const errorMessage = error instanceof Error ? error.message.trim() : ''
+  const recentLogMessage = getRecentWorkerError()
+
+  if (errorMessage && recentLogMessage && !errorMessage.includes(recentLogMessage)) {
+    return `${errorMessage} | ${recentLogMessage}`
+  }
+
+  if (errorMessage) {
+    return errorMessage
+  }
+
+  if (recentLogMessage) {
+    return recentLogMessage
+  }
+
+  return 'OpenSCAD WASM render failed'
+}
 
 function toBase64(text: string): string {
   const bytes = new TextEncoder().encode(text)
@@ -32,12 +79,14 @@ function toBase64(text: string): string {
 
 async function getOpenScad(): Promise<OpenSCADInstance> {
   if (!openscadPromise) {
+    // Use a static import here so the worker bundle eagerly contains the
+    // OpenSCAD runtime instead of relying on nested dynamic imports.
     openscadPromise = createOpenSCAD({
-      print: () => {
-        // Keep worker quiet during normal operation.
+      print: (text: string) => {
+        rememberWorkerLog(text)
       },
-      printErr: () => {
-        // Errors are surfaced by render failures.
+      printErr: (text: string) => {
+        rememberWorkerLog(text)
       }
     })
   }
@@ -64,6 +113,7 @@ self.onmessage = async (event: MessageEvent<RenderRequest>) => {
   }
 
   try {
+    resetWorkerLogs()
     const openscad = await getOpenScad()
     const stlText = await openscad.renderToStl(request.code)
     if (!stlText?.trim()) {
@@ -84,8 +134,7 @@ self.onmessage = async (event: MessageEvent<RenderRequest>) => {
     postResponse({
       id: request.id,
       success: false,
-      error: error instanceof Error ? error.message : 'OpenSCAD WASM render failed'
+      error: formatRenderError(error)
     })
   }
 }
-

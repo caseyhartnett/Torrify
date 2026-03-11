@@ -303,6 +303,10 @@ function App() {
         setStlBase64(result.stlBase64)
         setPreviewImage(null)
       } else if (!result.success && 'error' in result && result.error) {
+        logger.error('Render returned a failure result', {
+          error: result.error,
+          codeLength: code.length
+        })
         setRenderError(result.error)
       }
     } catch (error: unknown) {

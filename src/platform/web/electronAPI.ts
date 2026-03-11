@@ -13,6 +13,7 @@ import {
   extractContent,
   streamSseResponse
 } from '../../services/llm/utils'
+import { logger } from '../../utils/logger'
 import { OpenScadWasmRenderer } from './openscadRenderer'
 
 const SETTINGS_STORAGE_KEY = 'torrify.web.settings.v1'
@@ -31,6 +32,8 @@ const wasmRenderer = new OpenScadWasmRenderer()
 let cleanupBound = false
 
 type WebRenderMode = 'wasm' | 'api'
+const RENDER_CODE_PREVIEW_MAX_LINES = 12
+const RENDER_CODE_PREVIEW_MAX_CHARS = 600
 
 function nowIso(): string {
   return new Date().toISOString()
@@ -123,6 +126,30 @@ function getWasmRenderTimeoutMs(): number {
 
 function shouldAllowApiFallback(): boolean {
   return parseBooleanEnv(import.meta.env.VITE_WEB_WASM_API_FALLBACK, true)
+}
+
+function summarizeRenderCode(code: string): string {
+  const normalized = code.replace(/\r\n/g, '\n').trim()
+  if (!normalized) {
+    return ''
+  }
+
+  const preview = normalized.split('\n').slice(0, RENDER_CODE_PREVIEW_MAX_LINES).join('\n')
+  if (preview.length <= RENDER_CODE_PREVIEW_MAX_CHARS) {
+    return preview
+  }
+
+  return `${preview.slice(0, RENDER_CODE_PREVIEW_MAX_CHARS)}...<truncated>`
+}
+
+function logWebRenderFailure(stage: string, code: string, details: Record<string, unknown> = {}): void {
+  logger.error(`[WebRender] ${stage}`, {
+    mode: getWebRenderMode(),
+    renderBaseUrl: getRenderBaseUrl() || null,
+    codeLength: code.length,
+    codePreview: summarizeRenderCode(code),
+    ...details
+  })
 }
 
 function getContextFilename(backend: CADBackend): string {
@@ -417,11 +444,12 @@ async function startGatewayStream(streamId: string, payload: LLMRequestPayload):
 async function renderStlViaApi(code: string): Promise<{ success: boolean; stlBase64?: string; timestamp: number; error?: string }> {
   const renderBaseUrl = getRenderBaseUrl()
   if (!renderBaseUrl) {
+    const error = 'Web render endpoint is not configured. Set VITE_RENDER_API_URL for web rendering.'
+    logWebRenderFailure('API render is not configured', code, { error })
     return {
       success: false,
       timestamp: Date.now(),
-      error:
-        'Web render endpoint is not configured. Set VITE_RENDER_API_URL for web rendering.'
+      error
     }
   }
 
@@ -446,15 +474,25 @@ async function renderStlViaApi(code: string): Promise<{ success: boolean; stlBas
       }
     }
     const error = typeof data.error === 'string' ? data.error : `Render failed (${response.status})`
+    logWebRenderFailure('API render returned a failure response', code, {
+      endpoint: `${renderBaseUrl}/api/render`,
+      status: response.status,
+      error
+    })
     return {
       success: false,
       error,
       timestamp: Date.now()
     }
   } catch (error) {
+    const message = error instanceof Error ? error.message : 'Render request failed'
+    logWebRenderFailure('API render request threw an exception', code, {
+      endpoint: `${renderBaseUrl}/api/render`,
+      error: message
+    })
     return {
       success: false,
-      error: error instanceof Error ? error.message : 'Render request failed',
+      error: message,
       timestamp: Date.now()
     }
   }
@@ -463,6 +501,11 @@ async function renderStlViaApi(code: string): Promise<{ success: boolean; stlBas
 async function renderStlViaWasm(code: string): Promise<{ success: boolean; stlBase64?: string; timestamp: number; error?: string }> {
   try {
     const response = await wasmRenderer.renderStl(code, getWasmRenderTimeoutMs())
+    if (!response.success) {
+      logWebRenderFailure('WASM render returned a failure response', code, {
+        error: response.error || 'Unknown error'
+      })
+    }
     return {
       success: response.success,
       stlBase64: response.stlBase64,
@@ -470,10 +513,14 @@ async function renderStlViaWasm(code: string): Promise<{ success: boolean; stlBa
       error: response.error
     }
   } catch (error) {
+    const message = error instanceof Error ? error.message : 'OpenSCAD WASM render failed'
+    logWebRenderFailure('WASM render threw an exception', code, {
+      error: message
+    })
     return {
       success: false,
       timestamp: Date.now(),
-      error: error instanceof Error ? error.message : 'OpenSCAD WASM render failed'
+      error: message
     }
   }
 }
@@ -491,6 +538,11 @@ async function renderStlWithPolicy(code: string): Promise<{ success: boolean; st
 
   const canFallbackToApi = shouldAllowApiFallback() && !!getRenderBaseUrl()
   if (!canFallbackToApi) {
+    logWebRenderFailure('WASM render failed with no API fallback available', code, {
+      error: wasmResult.error || 'Unknown error',
+      apiFallbackEnabled: shouldAllowApiFallback(),
+      apiFallbackConfigured: !!getRenderBaseUrl()
+    })
     return wasmResult
   }
 
@@ -499,6 +551,10 @@ async function renderStlWithPolicy(code: string): Promise<{ success: boolean; st
     return apiResult
   }
 
+  logWebRenderFailure('WASM render and API fallback both failed', code, {
+    wasmError: wasmResult.error || 'Unknown error',
+    apiError: apiResult.error || 'Unknown error'
+  })
   return {
     success: false,
     timestamp: Date.now(),
