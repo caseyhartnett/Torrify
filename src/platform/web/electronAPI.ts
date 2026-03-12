@@ -97,6 +97,22 @@ function getRenderBaseUrl(): string {
   return (import.meta.env.VITE_RENDER_API_URL || '').trim().replace(/\/+$/, '')
 }
 
+function getPositiveEnvNumber(value: string | undefined, fallback: number): number {
+  const raw = Number(value)
+  if (!Number.isFinite(raw) || raw <= 0) {
+    return fallback
+  }
+  return Math.floor(raw)
+}
+
+function getGatewayTimeoutMs(): number {
+  return getPositiveEnvNumber(import.meta.env.VITE_WEB_GATEWAY_TIMEOUT_MS, 30_000)
+}
+
+function getRenderTimeoutMs(): number {
+  return getPositiveEnvNumber(import.meta.env.VITE_WEB_RENDER_TIMEOUT_MS, 45_000)
+}
+
 function parseBooleanEnv(value: string | undefined, fallback: boolean): boolean {
   if (!value) {
     return fallback
@@ -312,12 +328,53 @@ function triggerDownload(blob: Blob, filename: string): void {
 }
 
 function sanitizeFilename(input: string | undefined, fallback: string): string {
-  const cleaned = (input || '').trim().replace(/[<>:"/\\|?*\x00-\x1F]/g, '_')
+  const cleaned = Array.from((input || '').trim())
+    .map((char) => {
+      const code = char.charCodeAt(0)
+      if (code <= 0x1f || '<>:"/\\|?*'.includes(char)) {
+        return '_'
+      }
+      return char
+    })
+    .join('')
   return cleaned || fallback
 }
 
 function nextStreamId(): string {
   return `web-llm-stream-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
+}
+
+function createTimedAbortSignal(timeoutMs: number, upstream?: AbortSignal): {
+  readonly signal: AbortSignal
+  readonly didTimeout: () => boolean
+  readonly cleanup: () => void
+} {
+  const controller = new AbortController()
+  let timedOut = false
+  const timeoutId = window.setTimeout(() => {
+    timedOut = true
+    controller.abort()
+  }, timeoutMs)
+
+  const handleAbort = () => controller.abort()
+  if (upstream) {
+    if (upstream.aborted) {
+      controller.abort()
+    } else {
+      upstream.addEventListener('abort', handleAbort, { once: true })
+    }
+  }
+
+  return {
+    signal: controller.signal,
+    didTimeout: () => timedOut,
+    cleanup: () => {
+      window.clearTimeout(timeoutId)
+      if (upstream) {
+        upstream.removeEventListener('abort', handleAbort)
+      }
+    }
+  }
 }
 
 function getCallback(streamId: string): ((delta: string, full: string, done: boolean) => void) | undefined {
@@ -375,13 +432,19 @@ async function sendGatewayRequest(
   for (const baseUrl of baseUrls) {
     for (const chatPath of chatPaths) {
       const endpoint = `${baseUrl}${chatPath}`
+      const timedSignal = createTimedAbortSignal(getGatewayTimeoutMs(), signal)
       try {
-        const response = await fetch(endpoint, {
-          method: 'POST',
-          headers,
-          signal,
-          body
-        })
+        let response: Response
+        try {
+          response = await fetch(endpoint, {
+            method: 'POST',
+            headers,
+            signal: timedSignal.signal,
+            body
+          })
+        } finally {
+          timedSignal.cleanup()
+        }
 
         if (response.ok) {
           return response
@@ -392,11 +455,17 @@ async function sendGatewayRequest(
         const suffix = normalizedText ? ` ${normalizedText.slice(0, 180)}` : ''
         attemptErrors.push(`${response.status} ${endpoint}${suffix}`)
       } catch (error) {
+        if (!(error instanceof DOMException && error.name === 'AbortError')) {
+          lastError = error
+        }
+        if (timedSignal.didTimeout()) {
+          attemptErrors.push(`timeout ${endpoint}`)
+          continue
+        }
         // Respect active aborts from stream cancellation.
         if (error instanceof DOMException && error.name === 'AbortError') {
           throw error
         }
-        lastError = error
       }
     }
   }
@@ -454,11 +523,18 @@ async function renderStlViaApi(code: string): Promise<{ success: boolean; stlBas
   }
 
   try {
-    const response = await fetch(`${renderBaseUrl}/api/render`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ code, format: 'stl' })
-    })
+    const timedSignal = createTimedAbortSignal(getRenderTimeoutMs())
+    let response: Response
+    try {
+      response = await fetch(`${renderBaseUrl}/api/render`, {
+        method: 'POST',
+        signal: timedSignal.signal,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ code, format: 'stl' })
+      })
+    } finally {
+      timedSignal.cleanup()
+    }
     const data = (await response.json()) as Record<string, unknown>
     const stlBase64 =
       typeof data.stlBase64 === 'string'
@@ -488,6 +564,7 @@ async function renderStlViaApi(code: string): Promise<{ success: boolean; stlBas
     const message = error instanceof Error ? error.message : 'Render request failed'
     logWebRenderFailure('API render request threw an exception', code, {
       endpoint: `${renderBaseUrl}/api/render`,
+      timeoutMs: getRenderTimeoutMs(),
       error: message
     })
     return {
@@ -503,6 +580,7 @@ async function renderStlViaWasm(code: string): Promise<{ success: boolean; stlBa
     const response = await wasmRenderer.renderStl(code, getWasmRenderTimeoutMs())
     if (!response.success) {
       logWebRenderFailure('WASM render returned a failure response', code, {
+        timeoutMs: getWasmRenderTimeoutMs(),
         error: response.error || 'Unknown error'
       })
     }
@@ -515,6 +593,7 @@ async function renderStlViaWasm(code: string): Promise<{ success: boolean; stlBa
   } catch (error) {
     const message = error instanceof Error ? error.message : 'OpenSCAD WASM render failed'
     logWebRenderFailure('WASM render threw an exception', code, {
+      timeoutMs: getWasmRenderTimeoutMs(),
       error: message
     })
     return {
@@ -586,7 +665,8 @@ async function loadProjectFromPicker(): Promise<{ canceled: boolean; project?: L
 
 function buildWebElectronAPI(): ElectronAPI {
   return {
-    async renderScad(_code: string) {
+    async renderScad(code: string) {
+      void code
       return {
         success: true,
         image: TRANSPARENT_PIXEL_DATA_URI,
@@ -651,11 +731,13 @@ function buildWebElectronAPI(): ElectronAPI {
       return { success: true }
     },
 
-    async checkOpenscadPath(_path: string) {
+    async checkOpenscadPath(path: string) {
+      void path
       return true
     },
 
-    async checkPythonPath(_path: string) {
+    async checkPythonPath(path: string) {
+      void path
       return { valid: false, error: 'build123d is not available in web runtime' }
     },
 
@@ -800,7 +882,8 @@ function buildWebElectronAPI(): ElectronAPI {
       return { success: true }
     },
 
-    async openRecentFile(_filePath: string) {
+    async openRecentFile(filePath: string) {
+      void filePath
       return { canceled: true, error: 'Recent file reopen is not available in web runtime' }
     },
 
@@ -845,7 +928,9 @@ function buildWebElectronAPI(): ElectronAPI {
       }
     },
 
-    async updateContextFromCloud(_backend: CADBackend, _url: string) {
+    async updateContextFromCloud(backend: CADBackend, url: string) {
+      void backend
+      void url
       return { success: false, error: 'Knowledge base updates are not available in web runtime' }
     },
 
@@ -857,11 +942,14 @@ function buildWebElectronAPI(): ElectronAPI {
       return { success: false, models: [], error: 'Ollama is not available in web runtime' }
     },
 
-    onMenuEvent(_channel: string, _callback: () => void) {
+    onMenuEvent(channel: string, callback: () => void) {
+      void channel
+      void callback
       // No native menu in web runtime.
     },
 
-    removeMenuListener(_channel: string) {
+    removeMenuListener(channel: string) {
+      void channel
       // No native menu in web runtime.
     }
   }

@@ -210,7 +210,7 @@ export function AISettings({
           />
           <p className="text-xs text-gray-500 mt-1">
             {managedGatewayMode
-              ? 'Leave blank to use free tier limits. Add your Lemon Squeezy license key to continue with higher usage.'
+              ? 'Leave blank to use free tier limits. Add your Lemon Squeezy license key to continue with higher usage. This value is stored locally in this browser.'
               : 'Enter the license key for your PRO subscription.'}
           </p>
         </div>

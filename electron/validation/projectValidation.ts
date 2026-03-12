@@ -3,15 +3,35 @@
  * Used by main process before save/load operations.
  */
 
+type ProjectRecord = Record<string, unknown>
+type ProjectBackend = 'openscad' | 'build123d'
+
+function resolveProjectBackend(record: ProjectRecord): { valid: boolean; backend?: ProjectBackend } {
+  const rawBackend = record.cadBackend ?? record.backend
+  if (rawBackend === undefined) {
+    return { valid: true }
+  }
+
+  if (rawBackend === 'openscad' || rawBackend === 'build123d') {
+    return { valid: true, backend: rawBackend }
+  }
+
+  return { valid: false }
+}
+
 /** Check that an object has the shape of a saved Torrify project (version, code, chat, etc.). */
 export function validateProject(project: unknown): boolean {
   if (!project || typeof project !== 'object') {
     return false
   }
 
-  const record = project as Record<string, unknown>
+  const record = project as ProjectRecord
   // Check required fields
   if (typeof record.version !== 'number' || record.version < 1) {
+    return false
+  }
+
+  if (record.savedAt !== undefined && typeof record.savedAt !== 'string') {
     return false
   }
 
@@ -20,6 +40,10 @@ export function validateProject(project: unknown): boolean {
   }
 
   if (record.stlBase64 !== null && typeof record.stlBase64 !== 'string') {
+    return false
+  }
+
+  if (!resolveProjectBackend(record).valid) {
     return false
   }
 

@@ -45,6 +45,11 @@ function ChatPanelWrapper() {
   return <ChatPanel messages={messages} setMessages={setMessages} />
 }
 
+function ChatPanelWithApplyCode({ onApplyCode }: { onApplyCode: (code: string) => boolean | Promise<boolean> }) {
+  const [messages, setMessages] = useState<Message[]>(defaultMessages)
+  return <ChatPanel messages={messages} setMessages={setMessages} onApplyCode={onApplyCode} />
+}
+
 async function renderChatPanel() {
   const utils = render(<ChatPanelWrapper />)
   await waitFor(() => {
@@ -242,5 +247,72 @@ describe('ChatPanel', () => {
     await waitFor(() => {
       expect(screen.getByText(/Error: AI is disabled/i)).toBeInTheDocument()
     })
+  })
+
+  it('applies extracted code from non-streaming responses', async () => {
+    const user = userEvent.setup()
+    const onApplyCode = vi.fn().mockResolvedValue(true)
+
+    mockedCreateLLMService.mockReturnValue({
+      sendMessage: vi.fn().mockResolvedValue({
+        content: 'Here you go.\n```openscad\ncube([12, 12, 12]);\n```',
+        model: 'test-model',
+        usage: { promptTokens: 0, completionTokens: 0, totalTokens: 0 }
+      }),
+      supportsStreaming: vi.fn().mockReturnValue(false),
+      getProviderName: vi.fn().mockReturnValue('Mock Provider')
+    } as unknown as ReturnType<typeof createLLMService>)
+
+    render(<ChatPanelWithApplyCode onApplyCode={onApplyCode} />)
+    await waitFor(() => {
+      expect(window.electronAPI.getSettings).toHaveBeenCalled()
+    })
+
+    const input = screen.getByPlaceholderText('Type a message...')
+    fireEvent.change(input, { target: { value: 'Make me a cube' } })
+
+    await act(async () => {
+      await user.click(screen.getByRole('button', { name: /send/i }))
+      await flushPromises()
+    })
+
+    await waitFor(() => {
+      expect(onApplyCode).toHaveBeenCalledWith('cube([12, 12, 12]);\n')
+      expect(screen.getByText(/Code applied and rendered/i)).toBeInTheDocument()
+    })
+  })
+
+  it('does not show the rendered toast when auto-render fails', async () => {
+    const user = userEvent.setup()
+    const onApplyCode = vi.fn().mockResolvedValue(false)
+
+    mockedCreateLLMService.mockReturnValue({
+      sendMessage: vi.fn().mockResolvedValue({
+        content: '```openscad\ncube([1, 1, 1]);\n```',
+        model: 'test-model',
+        usage: { promptTokens: 0, completionTokens: 0, totalTokens: 0 }
+      }),
+      supportsStreaming: vi.fn().mockReturnValue(false),
+      getProviderName: vi.fn().mockReturnValue('Mock Provider')
+    } as unknown as ReturnType<typeof createLLMService>)
+
+    render(<ChatPanelWithApplyCode onApplyCode={onApplyCode} />)
+    await waitFor(() => {
+      expect(window.electronAPI.getSettings).toHaveBeenCalled()
+    })
+
+    fireEvent.change(screen.getByPlaceholderText('Type a message...'), {
+      target: { value: 'Make me a cube' }
+    })
+
+    await act(async () => {
+      await user.click(screen.getByRole('button', { name: /send/i }))
+      await flushPromises()
+    })
+
+    await waitFor(() => {
+      expect(onApplyCode).toHaveBeenCalledWith('cube([1, 1, 1]);\n')
+    })
+    expect(screen.queryByText(/Code applied and rendered/i)).not.toBeInTheDocument()
   })
 })

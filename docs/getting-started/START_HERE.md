@@ -1,30 +1,29 @@
 # Start Here
 
-This page is the docs entry point for first-time setup.
+If you are new to Torrify, start with the web app. It is the shortest path from opening the product to typing code, using chat, and seeing a rendered result.
 
-If you already used the repository `README.md`, you can skip this page and continue with:
+<div class="runtime-note">
+  <strong>Recommended first experience:</strong> use the web app to learn the flow, then move to the desktop app when you want more local power and more features.
+</div>
 
-- [Installation](./installation.md)
+## Web-First Path
+
+1. Open the hosted Torrify web app in a modern desktop browser.
+2. Type or paste a small OpenSCAD model into the editor.
+3. Render it in the browser preview.
+4. Ask the chat assistant to make one simple change.
+5. Keep going in web, or move to desktop later when you want the fuller toolset.
+
+## Move to the Desktop App When You Need
+
+- `build123d` or Python-based CAD
+- Ollama or BYOK provider support
+- native file dialogs and recent-project reopen
+- offline-capable local workflows after setup
+
+## Best Follow-Up Links
+
+- [Install or Access Torrify](./installation.md)
 - [Quickstart](./QUICKSTART.md)
-- [Troubleshooting](./TROUBLESHOOTING.md)
-
-## Fast Path (Docs-Only)
-
-1. Install Torrify from [GitHub Releases](https://github.com/caseyhartnett/torrify/releases)
-2. Install [OpenSCAD](https://openscad.org/downloads.html)
-3. Open Torrify and set `OpenSCAD Path` in `Settings`
-4. Render this to verify setup:
-
-```scad
-cube([20, 20, 20]);
-```
-
-If the 3D preview updates, your setup is working.
-
-## Next Steps
-
-- New user walkthrough: [Quickstart](./QUICKSTART.md)
-- Full setup options: [Installation](./installation.md)
-- Common errors and fixes: [Troubleshooting](./TROUBLESHOOTING.md)
-- Feature overview: [Features](../features/overview.md)
-- Developer setup: [Developer Guide](../developer/README.md)
+- [Start Desktop App](./START_APP.md)
+- [Runtime Matrix](../reference/RUNTIME_MATRIX.md)

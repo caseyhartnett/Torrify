@@ -1,76 +1,102 @@
 # Architecture
 
 ## Overview
-Torrify is an **AI-assisted desktop IDE for 3D CAD** built on **Electron**. It follows a secure, three-layer architecture to separate the user interface from system-level operations.
+
+Torrify ships as both a managed web app and a desktop app. The product shares one React application shell and most UI logic, while runtime adapters handle the differences between browser capabilities and Electron/local-system capabilities.
+
+## Runtime Shapes
+
+### Web App
+
+- Static Vite frontend
+- Browser-side runtime adapter in place of the Electron preload bridge
+- Managed AI gateway access
+- OpenSCAD rendering through a browser worker, with optional managed render API fallback
+
+### Desktop App
+
+- Electron main process, preload bridge, and renderer
+- Local filesystem access, native dialogs, and recent-file workflows
+- OpenSCAD and build123d execution through local tooling
+- Managed PRO, BYOK providers, and Ollama support
 
 ## Tech Stack
-*   **Electron**: Desktop application framework.
-*   **React + TypeScript**: User interface and logic.
-*   **Vite**: Build tool and development server.
-*   **TailwindCSS**: Styling.
-*   **Monaco Editor**: Code editing (same engine as VS Code).
-*   **OpenSCAD / build123d**: CAD backends.
+
+- **React + TypeScript**: Shared UI and application logic
+- **Vite**: Build tool and runtime target selection
+- **Electron**: Desktop shell and local-system integration
+- **Monaco Editor**: Code editing
+- **Three.js**: STL preview
+- **OpenSCAD / build123d**: CAD backends
 
 ## Project Structure
-```
+
+```text
 torrify/
-├── electron/                # Main Process (Backend)
-│   ├── cad/                 # CAD service integration
-│   ├── main.ts              # App lifecycle & IPC
-│   └── preload.ts           # Context bridge
-├── src/                     # Renderer Process (Frontend)
-│   ├── components/          # UI Components
-│   ├── services/            # Client-side services (LLM, CAD)
-│   ├── App.tsx              # Main application shell
-│   └── main.tsx             # Entry point
-├── resources/               # Bundled assets & context
-└── scripts/                 # Build & generation scripts
+├── electron/                # Desktop main process, preload bridge, IPC handlers
+├── src/                     # Shared renderer app, components, hooks, services
+├── public/                  # Browser-served assets and bundled context for web builds
+├── resources/               # Bundled assets used by desktop packaging
+├── docs/                    # Product, developer, and reference documentation
+└── scripts/                 # Build and generation scripts
 ```
 
-## The Three-Layer Design
+## Core Architecture Layers
 
-### 1. The Renderer (Frontend)
-*   **Role**: The UI you interact with (Editor, Chat, Preview).
-*   **Security**: Runs in a sandboxed environment. Cannot directly access the OS.
-*   **Key Components**: React, Monaco Editor, Three.js (STL Viewer).
+### 1. Shared UI Layer
 
-### 2. The Main Process (Backend)
-*   **Role**: The "engine" running in the background.
-*   **Capabilities**: Full system access (Filesystem, Spawn Processes).
-*   **Responsibilities**:
-    *   Saving/Loading files.
-    *   Running CAD engines (OpenSCAD CLI, Python).
-    *   Managing application windows.
+- React app shell
+- editor, chat, settings, and preview panes
+- shared state management for code, messages, projects, and rendering
 
-### 3. The Preload Bridge
-*   **Role**: Secure connector between Renderer and Main.
-*   **Function**: Exposes a limited, typed API to the Renderer via `window.electronAPI`.
-*   **Benefit**: Prevents the UI from executing arbitrary system commands.
+### 2. Runtime Adapter Layer
+
+- **Desktop**: typed `window.electronAPI` bridge provided by Electron preload
+- **Web**: browser implementation of the same surface for files, chat, settings, and rendering
+- keeps most product logic runtime-agnostic
+
+### 3. Execution Layer
+
+- **Desktop**: local CAD engines, local files, local settings, optional local AI
+- **Web**: browser storage, managed gateway calls, WASM rendering, optional managed render fallback
 
 ## Key Workflows
 
 ### Rendering
-1.  **Request**: Renderer sends code via IPC to Main.
-2.  **Execution**: Main process writes a temp file and spawns the CAD CLI (OpenSCAD or Python).
-3.  **Output**: CAD engine generates an STL file.
-4.  **Display**: Main returns the STL path; Renderer loads it into the 3D viewer.
+
+- **Web**: renderer -> web runtime adapter -> OpenSCAD worker or render API -> STL preview
+- **Desktop**: renderer -> IPC -> Electron main process -> OpenSCAD/build123d execution -> STL preview
 
 ### AI Chat
-1.  **Context Assembly**: System combines:
-    *   System Prompt (Rules & Behavior).
-    *   CAD Context (API Reference).
-    *   Current Code (from Editor).
-    *   User Message.
-2.  **Request**: Payload sent to AI Provider (Gemini/OpenRouter/Ollama).
-3.  **Response**: Streamed back to the UI.
+
+- **Web**: renderer -> managed gateway
+- **Desktop**: renderer -> managed gateway, BYOK provider, or Ollama depending on settings
+
+### Project Files
+
+- `.torrify` files capture workspace state, including code, chat history, and backend selection
+- web uses browser upload/download flows
+- desktop uses native file dialogs and recent-file integration
 
 ## Data Storage
-*   **Settings**: `~/.torrify/settings.json`
-*   **Logs**: `~/.torrify/logs/` (or platform specific app data)
-*   **Project Files**: `.torrify` (JSON containing code, chat, and settings).
 
-## Security
-*   **Context Isolation**: Enabled.
-*   **Node Integration**: Disabled in Renderer.
-*   **Content Security Policy (CSP)**: Strict policy applied to Renderer.
-*   **API Keys**: Stored locally in settings.json; never transmitted to Torrify servers.
+- **Desktop settings**: `~/.torrify/settings.json` or the Windows equivalent
+- **Desktop logs**: `~/.torrify/logs/` or platform-specific app data
+- **Web settings**: browser local storage on the current device/profile
+- **Project files**: `.torrify` JSON files across both runtimes
+
+## Security Model
+
+### Desktop
+
+- context isolation enabled
+- Node integration disabled in the renderer
+- strict IPC validation between renderer and main process
+- local credentials remain on the user's machine unless explicitly sent to a configured provider
+
+### Web
+
+- no direct OS access from the browser runtime
+- strict CSP for the hosted frontend
+- managed gateway boundaries for chat requests
+- browser-local settings and optional license-key storage

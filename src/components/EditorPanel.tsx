@@ -1,6 +1,7 @@
-import Editor from '@monaco-editor/react'
-import { useEffect, useState } from 'react'
+import { lazy, Suspense, useEffect, useState } from 'react'
 import { ParameterPanel } from './ParameterPanel'
+
+const MonacoEditor = lazy(() => import('@monaco-editor/react'))
 
 /** Supported CAD engine backends */
 type CADBackend = 'openscad' | 'build123d'
@@ -159,24 +160,32 @@ function EditorPanel({
       {/* Content Area */}
       <div className="flex-1 min-h-0">
         {activeTab === 'code' && (
-          <Editor
-            key={`${editorKey}-${cadBackend}`}
-            height="100%"
-            defaultLanguage={config.language}
-            language={config.language}
-            theme="vs-dark"
-            value={code}
-            onChange={(value) => onChange(value || '')}
-            options={{
-              minimap: { enabled: false },
-              fontSize: 14,
-              lineNumbers: 'on',
-              scrollBeyondLastLine: false,
-              automaticLayout: true,
-              tabSize: cadBackend === 'build123d' ? 4 : 2,
-              wordWrap: 'on',
-            }}
-          />
+          <Suspense
+            fallback={
+              <div className="h-full flex items-center justify-center text-sm text-gray-400">
+                Loading editor...
+              </div>
+            }
+          >
+            <MonacoEditor
+              key={`${editorKey}-${cadBackend}`}
+              height="100%"
+              defaultLanguage={config.language}
+              language={config.language}
+              theme="vs-dark"
+              value={code}
+              onChange={(value) => onChange(value || '')}
+              options={{
+                minimap: { enabled: false },
+                fontSize: 14,
+                lineNumbers: 'on',
+                scrollBeyondLastLine: false,
+                automaticLayout: true,
+                tabSize: cadBackend === 'build123d' ? 4 : 2,
+                wordWrap: 'on',
+              }}
+            />
+          </Suspense>
         )}
         {showLockedOverlay && <ProLockedOverlay onOpenSettings={onOpenSettings} />}
         {showParameterPanel && (

@@ -12,6 +12,12 @@ describe('validateProject', () => {
     ]
   }
 
+  const currentProject = {
+    ...validProject,
+    savedAt: '2026-03-11T23:58:00.000Z',
+    cadBackend: 'openscad' as const
+  }
+
   it('accepts valid project with all required fields', () => {
     expect(validateProject(validProject)).toBe(true)
   })
@@ -22,6 +28,14 @@ describe('validateProject', () => {
 
   it('accepts valid project with empty chat', () => {
     expect(validateProject({ ...validProject, chat: [] })).toBe(true)
+  })
+
+  it('accepts current project metadata fields', () => {
+    expect(validateProject(currentProject)).toBe(true)
+  })
+
+  it('accepts legacy backend field for backward compatibility', () => {
+    expect(validateProject({ ...validProject, backend: 'build123d' })).toBe(true)
   })
 
   it('rejects null', () => {
@@ -48,6 +62,11 @@ describe('validateProject', () => {
 
   it('rejects project with non-array chat', () => {
     expect(validateProject({ ...validProject, chat: {} })).toBe(false)
+  })
+
+  it('rejects project with invalid backend metadata', () => {
+    expect(validateProject({ ...currentProject, cadBackend: 'invalid' })).toBe(false)
+    expect(validateProject({ ...validProject, backend: 'invalid' })).toBe(false)
   })
 
   it('rejects project with invalid chat message (missing id)', () => {

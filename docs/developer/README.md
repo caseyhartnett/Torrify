@@ -36,6 +36,7 @@ npm run test:watch
 | `npm run dev:web` | Start Vite in managed web runtime mode. |
 | `npm run build` | Build renderer and main process for production. |
 | `npm run build:web` | Build static web bundle to `dist-web` (no Electron runtime plugins). |
+| `npm run test:e2e` | Run Playwright smoke tests against the managed web runtime. |
 | `npm run package` | Create installer for current OS. |
 | `npm run package:publish` | Build installer and publish release metadata/artifacts for auto-update. |
 | `npm run package:win` | Create Windows installer (requires Developer Mode). |
@@ -43,6 +44,7 @@ npm run test:watch
 
 ## 🏗️ Architecture
 See [Architecture Guide](../architecture/ARCHITECTURE.md) for a high-level overview.
+For a user-facing desktop-vs-web breakdown, see [Runtime Matrix](../reference/RUNTIME_MATRIX.md).
 
 ### Directory Structure
 *   **`electron/`**: Main process (Node.js). Handles OS interaction, file I/O, and CAD spawning.

@@ -38,6 +38,7 @@ function getFileTypeLabel(filePath: string): string {
 
 export interface FileToolbarProps {
   currentFilePath: string | null
+  canOpenRecentFiles: boolean
   recentFiles: RecentFile[]
   isRecentMenuOpen: boolean
   setIsRecentMenuOpen: (open: boolean | ((prev: boolean) => boolean)) => void
@@ -56,6 +57,7 @@ export interface FileToolbarProps {
 
 export function FileToolbar({
   currentFilePath,
+  canOpenRecentFiles,
   recentFiles,
   isRecentMenuOpen,
   setIsRecentMenuOpen,
@@ -93,8 +95,8 @@ export function FileToolbar({
           onKeyDown={onRecentMenuButtonKeyDown}
           ref={recentMenuButtonRef}
           className="px-3 py-2 bg-[#3e3e42] hover:bg-[#4e4e52] rounded text-sm flex items-center gap-1"
-          title="Recent Files"
-          disabled={recentFiles.length === 0}
+          title={canOpenRecentFiles ? 'Recent Files' : 'Recent file reopen is only available in the desktop app'}
+          disabled={recentFiles.length === 0 || !canOpenRecentFiles}
           aria-haspopup="menu"
           aria-expanded={isRecentMenuOpen}
           aria-controls="recent-files-menu"
@@ -107,7 +109,7 @@ export function FileToolbar({
             </svg>
           )}
         </button>
-        {isRecentMenuOpen && recentFiles.length > 0 && (
+        {isRecentMenuOpen && recentFiles.length > 0 && canOpenRecentFiles && (
           <div
             id="recent-files-menu"
             role="menu"

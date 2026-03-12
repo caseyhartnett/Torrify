@@ -1,17 +1,18 @@
-# Start App
+# Start the Desktop App
+
+The desktop app is the fuller-featured Torrify runtime. Use it when you want deeper local workflows, more integrations, and the most capability overall.
 
 ## Launch Installed Torrify
 
 ### Windows
 
 - Open `Start` and run `Torrify`
-- Or launch from desktop shortcut if created by installer
+- Or use the desktop shortcut if the installer created one
 
 ### macOS
 
 - Open `Applications` and run `Torrify`
-
-If macOS blocks the app on first run, allow it from `Privacy & Security`.
+- If macOS blocks the app on first run, allow it from `Privacy & Security`
 
 ### Linux (AppImage)
 
@@ -20,25 +21,24 @@ chmod +x Torrify-*.AppImage
 ./Torrify-*.AppImage
 ```
 
-## Initial Setup Checklist
-
-After first launch:
+## First Desktop Setup Checklist
 
 1. Open `Settings`
 2. Set CAD tool paths
-- `OpenSCAD Path`
-- `Python Path` (only if using build123d)
-3. Configure AI provider
-- Select provider
-- Add API key when needed
+   - `OpenSCAD Path`
+   - `Python Path` if you want build123d
+3. Choose your AI path
+   - managed PRO
+   - Gemini or OpenRouter
+   - Ollama for local AI
+4. Render a simple model to confirm your setup
 
-## Run From Source
+## Need the Fastest Start Instead?
 
-For development builds:
+If you mainly want to learn Torrify quickly, begin with the [web-first path](./START_HERE.md) and move to desktop when you want the extra features.
 
-```bash
-npm install
-npm run electron:dev
-```
+## Related Docs
 
-See the [Developer Guide](../developer/README.md) for full setup.
+- [Install or Access Torrify](./installation.md)
+- [Quickstart](./QUICKSTART.md)
+- [Runtime Matrix](../reference/RUNTIME_MATRIX.md)

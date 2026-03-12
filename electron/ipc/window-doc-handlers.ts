@@ -18,8 +18,7 @@ const DOC_FILES = [
   'docs/features/SETTINGS.md',
   'docs/features/WHATS_NEW.md',
   'docs/reference/QUICK_REFERENCE.md',
-  'docs/reference/index.md',
-  'docs/NEXT_STEPS.md'
+  'docs/reference/index.md'
 ]
 
 export function registerWindowDocHandlers(getMainWindow: () => BrowserWindow | null): void {

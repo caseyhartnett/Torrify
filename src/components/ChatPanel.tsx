@@ -1,7 +1,7 @@
 import { useRef, useEffect, useCallback, useState } from 'react'
 import { createLLMService, PROVIDER_NAMES, requiresApiKey, type LLMMessage, type StreamController } from '../services/llm'
 import type { CADBackend } from '../services/cad'
-import { isWebRuntime } from '../platform/runtime'
+import { getRuntimeCapabilities } from '../platform/capabilities'
 import { logger } from '../utils/logger'
 
 /**
@@ -45,7 +45,7 @@ interface ChatPanelProps {
   /** Callback triggered after snapshots have been successfully sent */
   onSnapshotsSent?: () => void
   /** Callback to apply suggested code back to the main editor */
-  onApplyCode?: (code: string) => void
+  onApplyCode?: (code: string) => boolean | Promise<boolean>
   /** Array of existing chat messages */
   messages: Message[]
   /** State setter for updating the chat messages */
@@ -174,7 +174,8 @@ function ChatPanel({
   onDiagnosisSent, 
   settingsVersion = 0 
 }: ChatPanelProps) {
-  const managedWebMode = isWebRuntime()
+  const runtimeCapabilities = getRuntimeCapabilities()
+  const managedWebMode = runtimeCapabilities.usesManagedGatewayOnly
   const [input, setInput] = useState('')
   const [isLoading, setIsLoading] = useState(false)
   const [isStreaming, setIsStreaming] = useState(false)
@@ -190,6 +191,16 @@ function ChatPanel({
   const onApplyCodeRef = useRef(onApplyCode)
   const sendToLlmRef = useRef<(userInput: string, imageDataUrls?: string[]) => Promise<void>>(async () => {})
   onApplyCodeRef.current = onApplyCode
+
+  const runWhenIdle = useCallback((task: () => void): (() => void) => {
+    if (typeof window.requestIdleCallback === 'function') {
+      const idleId = window.requestIdleCallback(task)
+      return () => window.cancelIdleCallback(idleId)
+    }
+
+    const timeoutId = window.setTimeout(task, 0)
+    return () => window.clearTimeout(timeoutId)
+  }, [])
 
   // Handle file selection for image import
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -243,37 +254,100 @@ function ChatPanel({
     return () => window.clearTimeout(timer)
   }, [codeAppliedAt])
 
-  // Load provider status (e.g. "Google Gemini (gemini-3-flash)") on mount and settings change
-  useEffect(() => {
-    void loadLLMStatus()
-  }, [settingsVersion])
-
   /**
    * Fetches and parses the API context (help/reference docs) for the current backend.
    * This context is injected into LLM prompts to improve code generation accuracy.
    */
+  const loadApiContext = useCallback(async (backend: CADBackend) => {
+    try {
+      const result = await window.electronAPI.getContext(backend)
+      if (result.success && result.content) {
+        return result.content
+      }
+    } catch (error) {
+      logger.error('Failed to load API context', error)
+    }
+    return undefined
+  }, [])
+
   useEffect(() => {
     let cancelled = false
-    const loadContext = async () => {
-      try {
-        const result = await window.electronAPI.getContext(cadBackend)
+    const cancelIdleWork = runWhenIdle(() => {
+      void loadApiContext(cadBackend).then((content) => {
         if (cancelled) return
-        if (result.success && result.content) {
-          setApiContext(result.content)
-        } else {
-          setApiContext(undefined)
-        }
-      } catch (error) {
-        if (cancelled) return
-        logger.error('Failed to load API context', error)
-        setApiContext(undefined)
-      }
-    }
-    void loadContext()
+        setApiContext(content)
+      })
+    })
+
     return () => {
       cancelled = true
+      cancelIdleWork()
     }
-  }, [cadBackend])
+  }, [cadBackend, loadApiContext, runWhenIdle])
+
+  /**
+   * Refreshes the display status of the AI provider based on current user settings.
+   */
+  const loadLLMStatus = useCallback(async () => {
+    try {
+      const settings = await window.electronAPI.getSettings()
+      if (settings.llm.enabled) {
+        if (settings.llm.provider === 'gateway') {
+          if (settings.llm.gatewayLicenseKey?.trim()) {
+            setLlmStatus(`${PROVIDER_NAMES[settings.llm.provider]} (${settings.llm.model})`)
+          } else {
+            setLlmStatus(
+              managedWebMode
+                ? `PRO Gateway (Free Tier)${settings.llm.model ? ` (${settings.llm.model})` : ''}`
+                : 'PRO License Key Required - Configure in Settings'
+            )
+          }
+        } else if (settings.llm.provider === 'openrouter') {
+          const configured = await window.electronAPI.getOpenRouterConfigured()
+          if (configured) {
+            setLlmStatus(`${PROVIDER_NAMES[settings.llm.provider]} (${settings.llm.model})`)
+          } else {
+            setLlmStatus('OpenRouter API Key Required - Set OPENROUTER_API_KEY in environment')
+          }
+        } else if (!requiresApiKey(settings.llm.provider)) {
+          setLlmStatus(`${PROVIDER_NAMES[settings.llm.provider]} (${settings.llm.model})`)
+        } else if (settings.llm.apiKey?.trim()) {
+          setLlmStatus(`${PROVIDER_NAMES[settings.llm.provider]} (${settings.llm.model})`)
+        } else {
+          setLlmStatus('API Key Required - Configure in Settings')
+        }
+      } else {
+        setLlmStatus('AI Disabled')
+      }
+    } catch {
+      setLlmStatus('AI Not Configured')
+    }
+  }, [managedWebMode])
+
+  useEffect(() => {
+    const cancelIdleWork = runWhenIdle(() => {
+      void loadLLMStatus()
+    })
+
+    return cancelIdleWork
+  }, [loadLLMStatus, runWhenIdle, settingsVersion])
+
+  /**
+   * Ensures context is available before the first AI request when enabled.
+   */
+  const getApiContextForRequest = useCallback(async () => {
+    if (!includeContext) {
+      return undefined
+    }
+
+    if (apiContext !== undefined) {
+      return apiContext
+    }
+
+    const content = await loadApiContext(cadBackend)
+    setApiContext(content)
+    return content
+  }, [apiContext, cadBackend, includeContext, loadApiContext])
 
   /**
    * Automatically handles error diagnosis when the main process reports a render failure.
@@ -317,45 +391,6 @@ ${pendingDiagnosis.code}
   }, [pendingDiagnosis, isLoading, cadBackend, onDiagnosisSent, setMessages])
 
   /**
-   * Refreshes the display status of the AI provider based on current user settings.
-   */
-  const loadLLMStatus = async () => {
-    try {
-      const settings = await window.electronAPI.getSettings()
-      if (settings.llm.enabled) {
-        if (settings.llm.provider === 'gateway') {
-          if (settings.llm.gatewayLicenseKey?.trim()) {
-            setLlmStatus(`${PROVIDER_NAMES[settings.llm.provider]} (${settings.llm.model})`)
-          } else {
-            setLlmStatus(
-              managedWebMode
-                ? `PRO Gateway (Free Tier)${settings.llm.model ? ` (${settings.llm.model})` : ''}`
-                : 'PRO License Key Required - Configure in Settings'
-            )
-          }
-        } else if (settings.llm.provider === 'openrouter') {
-          const configured = await window.electronAPI.getOpenRouterConfigured()
-          if (configured) {
-            setLlmStatus(`${PROVIDER_NAMES[settings.llm.provider]} (${settings.llm.model})`)
-          } else {
-            setLlmStatus('OpenRouter API Key Required - Set OPENROUTER_API_KEY in environment')
-          }
-        } else if (!requiresApiKey(settings.llm.provider)) {
-          setLlmStatus(`${PROVIDER_NAMES[settings.llm.provider]} (${settings.llm.model})`)
-        } else if (settings.llm.apiKey?.trim()) {
-          setLlmStatus(`${PROVIDER_NAMES[settings.llm.provider]} (${settings.llm.model})`)
-        } else {
-          setLlmStatus('API Key Required - Configure in Settings')
-        }
-      } else {
-        setLlmStatus('AI Disabled')
-      }
-    } catch {
-      setLlmStatus('AI Not Configured')
-    }
-  }
-
-  /**
    * Main communication loop with the LLM. 
    * Handles both streaming and non-streaming providers.
    * 
@@ -372,7 +407,7 @@ ${pendingDiagnosis.code}
 
       // Validate provider configuration before attempt
       if (settings.llm.provider === 'gateway') {
-        if (!managedWebMode && !settings.llm.gatewayLicenseKey?.trim()) {
+        if (!runtimeCapabilities.gatewayLicenseKeyOptional && !settings.llm.gatewayLicenseKey?.trim()) {
           throw new Error('PRO license key not configured. Add it in Settings.')
         }
       } else if (settings.llm.provider === 'openrouter') {
@@ -386,6 +421,7 @@ ${pendingDiagnosis.code}
       }
 
       const llmService = createLLMService(settings.llm)
+      const requestContext = await getApiContextForRequest()
 
       // Transform chat history into LLM-compatible message format
       const llmMessages: LLMMessage[] = messages
@@ -417,7 +453,7 @@ ${pendingDiagnosis.code}
 
         const controller = await llmService.streamMessage(
           llmMessages,
-          (_chunk, accumulated, done) => {
+          async (_chunk, accumulated, done) => {
             if (done) {
               setIsStreaming(false)
               streamControllerRef.current = null
@@ -429,8 +465,10 @@ ${pendingDiagnosis.code}
               const extracted = extractCodeFromResponse(accumulated, cadBackend)
               if (extracted.code) {
                 logger.debug('[ChatPanel] Applying extracted code to editor')
-                onApplyCodeRef.current?.(extracted.code)
-                setCodeAppliedAt(Date.now())
+                const rendered = await onApplyCodeRef.current?.(extracted.code)
+                if (rendered === true) {
+                  setCodeAppliedAt(Date.now())
+                }
               }
 
               // Finalize the streaming message with cleaned text (explanation only)
@@ -455,7 +493,7 @@ ${pendingDiagnosis.code}
           },
           currentCode,
           cadBackend,
-          includeContext ? apiContext : undefined
+          requestContext
         )
         
         streamControllerRef.current = controller
@@ -465,13 +503,15 @@ ${pendingDiagnosis.code}
           llmMessages, 
           currentCode, 
           cadBackend, 
-          includeContext ? apiContext : undefined
+          requestContext
         )
 
         const extracted = extractCodeFromResponse(response.content, cadBackend)
         if (extracted.code) {
-          onApplyCodeRef.current?.(extracted.code)
-          setCodeAppliedAt(Date.now())
+          const rendered = await onApplyCodeRef.current?.(extracted.code)
+          if (rendered === true) {
+            setCodeAppliedAt(Date.now())
+          }
         }
 
         if (extracted.message) {
@@ -508,7 +548,7 @@ ${pendingDiagnosis.code}
         onSnapshotsSent?.()
       }
     }
-  }, [managedWebMode, currentCode, messages, onSnapshotsSent, cadBackend, setMessages, apiContext, includeContext])
+  }, [currentCode, messages, onSnapshotsSent, cadBackend, setMessages, getApiContextForRequest, runtimeCapabilities.gatewayLicenseKeyOptional])
   sendToLlmRef.current = sendToLlm
 
   /**
@@ -643,7 +683,7 @@ ${pendingDiagnosis.code}
         {codeAppliedAt && (
           <div className="flex justify-center">
             <div className="text-xs text-green-300 bg-green-900/30 border border-green-700 px-2 py-1 rounded">
-              Code applied to editor
+              Code applied and rendered
             </div>
           </div>
         )}

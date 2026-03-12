@@ -4,6 +4,7 @@ import type { Settings } from './types'
 
 interface GeneralSettingsProps {
   settings: Settings
+  supportsBuild123d: boolean
   pathValid: boolean | null
   pythonPathValid: { valid: boolean; version?: string; error?: string } | null
   backendValidation: { valid: boolean; version?: string; error?: string } | null
@@ -51,6 +52,7 @@ function ErrorIcon() {
 
 export function GeneralSettings({
   settings,
+  supportsBuild123d,
   pathValid,
   pythonPathValid,
   backendValidation,
@@ -74,17 +76,24 @@ export function GeneralSettings({
           onChange={(e) => onBackendChange(e.target.value as CADBackend)}
           className="w-full bg-[#1e1e1e] text-white px-3 py-2 rounded border border-[#3e3e42] focus:outline-none focus:border-blue-500"
         >
-          {Object.entries(BACKEND_NAMES).map(([key, name]) => (
-            <option key={key} value={key}>
-              {name}
-            </option>
-          ))}
+          {Object.entries(BACKEND_NAMES)
+            .filter(([key]) => key !== 'build123d' || supportsBuild123d)
+            .map(([key, name]) => (
+              <option key={key} value={key}>
+                {name}
+              </option>
+            ))}
         </select>
         <p className="text-xs text-gray-500 mt-1">
           {settings.cadBackend === 'openscad'
             ? 'OpenSCAD uses its own declarative modeling language (.scad files)'
             : 'build123d is a Python-based CAD library (requires Python + pip install build123d)'}
         </p>
+        {!supportsBuild123d && (
+          <p className="text-xs text-yellow-400 mt-2">
+            build123d is currently available only in the desktop app.
+          </p>
+        )}
 
         {backendValidation && (
           <div className="mt-2">

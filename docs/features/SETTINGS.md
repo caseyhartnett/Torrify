@@ -1,35 +1,47 @@
 # Settings System
 
-Torrify settings are persisted locally and control the behavior of CAD backends, AI integration, and the editor.
+Torrify settings control CAD backends, AI access, and editor behavior. Some settings are shared in concept across runtimes, but the available options differ between the web app and the desktop app.
 
 ## Accessing Settings
-Click the **Gear Icon (⚙️)** in the top-right corner of the application window.
 
-## Configuration Categories
+Click the **Gear Icon** in the top-right corner of the app.
 
-### 1. General
-*   **CAD Backend**: Switch between OpenSCAD and build123d.
-*   **OpenSCAD Path**: Path to `openscad.exe`. (Validated on entry).
-*   **Python Path**: Path to python interpreter for build123d.
-*   **Theme**: (Future) UI theme selection.
+## General Settings
 
-### 2. AI Configuration
-*   **Enable AI**: Master toggle for AI features.
-*   **Access Mode**: Choose between **PRO** (License Key) or **BYOK** (Bring Your Own Key).
-*   **PRO Unlocks**: Includes access to the **Parameter Slider** tab for code-free parameter editing.
-*   **Provider**: Select Gemini, OpenRouter, or Ollama.
-*   **Model**: Specific model string (e.g., `gemini-2.0-flash`).
-*   **Temperature**: Control randomness (0.0 - 1.0).
-*   **Max Tokens**: Limit response length.
+- **CAD Backend**
+  - Desktop: switch between OpenSCAD and build123d
+  - Web: managed OpenSCAD workflow only
+- **OpenSCAD Path**
+  - Desktop only
+- **Python Path**
+  - Desktop only, for build123d
 
-### 3. Knowledge Base
-*   **Context Status**: Shows version and size of the loaded API context.
-*   **Update**: Fetch the latest documentation context from the cloud.
-*   **Reset**: Revert to the factory-bundled context.
+## AI Settings
+
+- **Web app**
+  - Uses the managed gateway flow
+  - Optional license key for higher managed usage limits
+  - No BYOK or Ollama flow in the browser runtime
+- **Desktop app**
+  - Managed PRO, Gemini, OpenRouter, and Ollama are supported
+  - API keys are stored locally in desktop settings
+
+## Knowledge Base Settings
+
+- **Desktop**: can update or reset bundled context files
+- **Web**: uses the bundled browser/runtime content path and does not expose the same local update flow
 
 ## Storage
-Settings are stored in a JSON file:
-*   **Windows**: `C:\Users\<User>\.torrify\settings.json`
-*   **macOS/Linux**: `~/.torrify/settings.json`
 
-> **Note**: API keys are stored in plain text in this file. Do not share your settings file.
+### Desktop
+
+Settings are stored in a JSON file:
+
+- **Windows**: `C:\Users\<User>\.torrify\settings.json`
+- **macOS/Linux**: `~/.torrify/settings.json`
+
+> Desktop API keys are stored in plain text in this file. Do not share your settings file.
+
+### Web
+
+Settings and the optional license key are stored in browser storage on the current device/profile.

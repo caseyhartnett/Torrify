@@ -23,10 +23,10 @@ export default defineConfig({
   ],
   webServer: {
     command: isCI
-      ? 'npm run preview -- --host 127.0.0.1 --port 4173 --strictPort'
-      : 'npm run dev -- --host 127.0.0.1 --port 4173 --strictPort',
+      ? 'npm run preview:web:test -- --host 127.0.0.1 --port 4173 --strictPort'
+      : 'npm run dev:web:test -- --host 127.0.0.1 --port 4173 --strictPort',
     url: 'http://127.0.0.1:4173',
-    reuseExistingServer: true,
+    reuseExistingServer: !isCI,
     timeout: 120_000,
   },
 })

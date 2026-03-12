@@ -32,6 +32,7 @@ export interface LoadedProject {
   chat?: ProjectMessage[]
   stlBase64?: string | null
   cadBackend?: CADBackend
+  backend?: CADBackend
 }
 
 export interface ProjectFile {

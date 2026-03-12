@@ -49,6 +49,10 @@ Optional:
   - Default is `wasm`. Set to `api` to force server render API only.
 - `VITE_WEB_WASM_RENDER_TIMEOUT_MS=45000`
   - Per-render timeout for browser-side WASM rendering.
+- `VITE_WEB_GATEWAY_TIMEOUT_MS=30000`
+  - Client-side timeout for managed chat requests before the browser surface fails fast.
+- `VITE_WEB_RENDER_TIMEOUT_MS=45000`
+  - Client-side timeout for render API requests.
 - `VITE_WEB_WASM_API_FALLBACK=true`
   - If `true`, fallback to API when WASM render fails and `VITE_RENDER_API_URL` is configured.
 - `VITE_RENDER_API_URL=https://<your-render-api-domain>`
@@ -72,8 +76,20 @@ After deploy, verify the site loads over HTTPS.
 - Users can chat without entering an API key (free tier behavior is enforced server-side).
 - Users can enter a Lemon Squeezy license key in Settings for higher usage.
 - License key input is a password field and includes password-manager-friendly attributes.
+- The optional license key is stored in browser local storage on that device/profile.
 
-## 5) Validation Checklist
+## 5) Abuse Controls And Guardrails
+
+Before public launch, ensure the gateway/render services enforce policy server-side:
+
+- Rate-limit anonymous/free traffic by IP/device/session.
+- Apply higher limits only after successful license validation.
+- Enforce request body size limits for prompts and image attachments.
+- Enforce render timeouts and output-size limits on the render API.
+- Add monitoring/alerts for request volume, error rate, and render latency.
+- Keep gateway and render endpoints behind HTTPS only.
+
+## 6) Validation Checklist
 
 1. Open app in browser.
 2. Open Settings > AI Configuration.
@@ -83,8 +99,20 @@ After deploy, verify the site loads over HTTPS.
 6. Send chat with license key (paid path).
 7. Render STL in browser (WASM path).
 8. (Optional) Validate fallback path by forcing `VITE_WEB_RENDER_MODE=api`.
+9. Confirm browser console is free of unexpected CSP/network errors.
+10. Confirm timeout/error states are understandable when gateway or render API is unavailable.
 
-## 6) Troubleshooting
+## 7) Browser Support
+
+Recommended support target for launch:
+
+- Latest Chrome / Edge
+- Latest Firefox
+- Latest Safari on macOS
+
+If you support mobile browsers, validate them separately. WASM-first rendering can behave differently across devices.
+
+## 8) Troubleshooting
 
 - `Web render endpoint is not configured`
   This only applies if `VITE_WEB_RENDER_MODE=api` or fallback is enabled. Set `VITE_RENDER_API_URL` and redeploy.

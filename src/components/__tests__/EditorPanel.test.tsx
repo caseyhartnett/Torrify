@@ -8,60 +8,60 @@ describe('EditorPanel', () => {
   const mockOnRender = vi.fn()
   const defaultCode = 'cube([10, 10, 10]);'
 
-  it('renders the editor panel', () => {
+  it('renders the editor panel', async () => {
     render(
-      <EditorPanel 
+      <EditorPanel
         code={defaultCode}
         onChange={mockOnChange}
         onRender={mockOnRender}
       />
     )
-    
-    expect(screen.getByText('Code')).toBeInTheDocument()
-    expect(screen.getByText('OpenSCAD Script')).toBeInTheDocument()
+
+    expect(await screen.findByText('Code')).toBeInTheDocument()
+    expect(await screen.findByText('OpenSCAD Script')).toBeInTheDocument()
   })
 
-  it('displays the render button', () => {
+  it('displays the render button', async () => {
     render(
-      <EditorPanel 
+      <EditorPanel
         code={defaultCode}
         onChange={mockOnChange}
         onRender={mockOnRender}
       />
     )
-    
-    const renderButton = screen.getByRole('button', { name: /render.*ctrl\+s/i })
+
+    const renderButton = await screen.findByRole('button', { name: /render.*ctrl\+s/i })
     expect(renderButton).toBeInTheDocument()
   })
 
   it('calls onRender when render button is clicked', async () => {
     const user = userEvent.setup()
     render(
-      <EditorPanel 
+      <EditorPanel
         code={defaultCode}
         onChange={mockOnChange}
         onRender={mockOnRender}
       />
     )
-    
-    const renderButton = screen.getByRole('button', { name: /render/i })
+
+    const renderButton = await screen.findByRole('button', { name: /render/i })
     await user.click(renderButton)
-    
+
     expect(mockOnRender).toHaveBeenCalledTimes(1)
   })
 
-  it('triggers render on Ctrl+S keypress', () => {
+  it('triggers render on Ctrl+S keypress', async () => {
     render(
-      <EditorPanel 
+      <EditorPanel
         code={defaultCode}
         onChange={mockOnChange}
         onRender={mockOnRender}
       />
     )
-    
-    // Simulate Ctrl+S
+
+    await screen.findByRole('button', { name: /render/i })
     fireEvent.keyDown(window, { key: 's', ctrlKey: true })
-    
+
     expect(mockOnRender).toHaveBeenCalled()
   })
 })

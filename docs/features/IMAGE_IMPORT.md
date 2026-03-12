@@ -26,8 +26,8 @@ Images are saved into `.torrify` project files as data URLs:
 ## Files Involved
 
 - `src/components/ChatPanel.tsx` (image picker + preview)
-- `src/services/llm/GeminiService.ts` (image payloads)
-- `src/services/llm/OpenRouterService.ts` (image payloads)
+- `electron/llm/GeminiService.ts` (image payloads)
+- `electron/llm/OpenRouterService.ts` (image payloads)
 
 ## Tips
 

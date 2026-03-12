@@ -4,19 +4,22 @@ This directory contains resources needed for building installers.
 
 ## Icons
 
-The application uses **icon.png** in this directory (generated from **Torrify Icon.png** in the project root) for all platform installers.
+The application uses **icon.png** in this directory for all platform installers.
 
 - **icon.png** – Universal app icon (512×512 or larger) used for macOS DMG, Windows NSIS, and Linux AppImage
 - electron-builder accepts PNG for all platforms; no separate .ico or .icns required
 
 ### In-app logo
 
-The in-app logo (header, favicon, modals) is served from `public/logo.png`, which is a copy of Torrify Icon.png.
+The canonical branding asset lives at `assets/branding/icon.png`.
+
+The in-app logo (header, favicon, modals) is served from `public/logo.png`, which is generated from that source file.
 
 ### Updating the icon
 
-1. Replace **Torrify Icon.png** in the project root with your new icon (512×512 or larger recommended).
-2. Copy it to:
+1. Replace `assets/branding/icon.png` with your new icon (512x512 or larger recommended).
+2. Run `npm run sync:branding`.
+3. The sync script updates:
    - `public/logo.png` (for app UI and favicon)
    - `docs/assets/logo.png` (for README and docs)
    - `build/icon.png` (for installers)

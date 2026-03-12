@@ -1,8 +1,12 @@
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import type { KeyboardEvent as ReactKeyboardEvent } from 'react'
 import { requiresApiKey, DEFAULT_MODELS } from '../services/llm'
 import type { CADBackend } from '../services/cad'
-import { isWebRuntime } from '../platform/runtime'
+import {
+  getDefaultRuntimeBackend,
+  getRuntimeCapabilities,
+  supportsBackend
+} from '../platform/capabilities'
 import { logger } from '../utils/logger'
 import {
   GeneralSettings,
@@ -26,11 +30,14 @@ const CONTEXT_URLS = {
 }
 
 const TAB_ORDER: SettingsTab[] = ['general', 'ai', 'knowledge']
-const WEB_TAB_ORDER: SettingsTab[] = ['ai']
 
 function SettingsModal({ isOpen, onClose, initialTab }: SettingsModalProps) {
-  const managedWebMode = isWebRuntime()
-  const availableTabs: SettingsTab[] = managedWebMode ? WEB_TAB_ORDER : TAB_ORDER
+  const runtimeCapabilities = getRuntimeCapabilities()
+  const managedWebMode = runtimeCapabilities.usesManagedGatewayOnly
+  const availableTabs: SettingsTab[] = useMemo(
+    () => (runtimeCapabilities.supportsKnowledgeBaseManagement ? TAB_ORDER : ['ai']),
+    [runtimeCapabilities]
+  )
   const [settings, setSettings] = useState<Settings | null>(null)
   const [pathValid, setPathValid] = useState<boolean | null>(null)
   const [pythonPathValid, setPythonPathValid] = useState<{
@@ -113,7 +120,7 @@ function SettingsModal({ isOpen, onClose, initialTab }: SettingsModalProps) {
       if (managedWebMode) {
         loadedSettings = {
           ...loadedSettings,
-          cadBackend: 'openscad',
+          cadBackend: getDefaultRuntimeBackend(runtimeCapabilities),
           llm: {
             ...loadedSettings.llm,
             provider: 'gateway',
@@ -135,6 +142,12 @@ function SettingsModal({ isOpen, onClose, initialTab }: SettingsModalProps) {
         }
         await window.electronAPI.saveSettings(loadedSettings)
       }
+      if (!supportsBackend(loadedSettings.cadBackend, runtimeCapabilities)) {
+        loadedSettings = {
+          ...loadedSettings,
+          cadBackend: getDefaultRuntimeBackend(runtimeCapabilities)
+        }
+      }
       const [nextPathValid, nextPythonPathValid, nextBackendValidation] = managedWebMode
         ? [true, null, { valid: true, version: 'OpenSCAD Web Runtime' }]
         : await Promise.all([
@@ -152,7 +165,7 @@ function SettingsModal({ isOpen, onClose, initialTab }: SettingsModalProps) {
     } catch (error) {
       logger.error('Failed to load settings', error)
     }
-  }, [managedWebMode, resolveBackendValidation, resolvePathValid, resolvePythonPathValid])
+  }, [managedWebMode, resolveBackendValidation, resolvePathValid, resolvePythonPathValid, runtimeCapabilities])
 
   const loadContextStatus = useCallback(async () => {
     try {
@@ -384,7 +397,7 @@ function SettingsModal({ isOpen, onClose, initialTab }: SettingsModalProps) {
     if (!settings) return
     if (settings.llm.enabled) {
       if (settings.llm.provider === 'gateway') {
-        if (!managedWebMode && !settings.llm.gatewayLicenseKey?.trim()) {
+        if (!runtimeCapabilities.gatewayLicenseKeyOptional && !settings.llm.gatewayLicenseKey?.trim()) {
           setSaveMessage('PRO license key is required')
           return
         }
@@ -402,7 +415,7 @@ function SettingsModal({ isOpen, onClose, initialTab }: SettingsModalProps) {
     const normalizedSettings = managedWebMode
       ? {
           ...settings,
-          cadBackend: 'openscad' as const,
+          cadBackend: getDefaultRuntimeBackend(runtimeCapabilities),
           llm: {
             ...settings.llm,
             provider: 'gateway' as const,
@@ -504,6 +517,7 @@ function SettingsModal({ isOpen, onClose, initialTab }: SettingsModalProps) {
           {activeTab === 'general' && (
             <GeneralSettings
               settings={settings}
+              supportsBuild123d={runtimeCapabilities.supportedBackends.includes('build123d')}
               pathValid={pathValid}
               pythonPathValid={pythonPathValid}
               backendValidation={backendValidation}

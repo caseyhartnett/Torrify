@@ -1,17 +1,17 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { lazy, Suspense, useState, useEffect, useCallback, useRef } from 'react'
 import ChatPanel, { type Message } from './components/ChatPanel'
 import EditorPanel from './components/EditorPanel'
 import PreviewPanel from './components/PreviewPanel'
-import SettingsModal from './components/SettingsModal'
-import WelcomeModal from './components/WelcomeModal'
-import DemoDialog from './components/DemoDialog'
-import HelpBot from './components/HelpBot'
-import ConfirmDialog from './components/ConfirmDialog'
 import { FileToolbar } from './components/FileToolbar'
 import { ProjectToolbar } from './components/ProjectToolbar'
 import { BACKEND_NAMES } from './services/cad'
 import type { CADBackend } from './services/cad'
 import { logger } from './utils/logger'
+import {
+  getDefaultRuntimeBackend,
+  getRuntimeCapabilities,
+  supportsBackend
+} from './platform/capabilities'
 import {
   useFileOperations,
   useRecentFiles,
@@ -21,6 +21,12 @@ import {
   getDefaultMessages
 } from './hooks'
 import type { Settings, SettingsTab } from './components/settings'
+
+const SettingsModal = lazy(() => import('./components/SettingsModal'))
+const WelcomeModal = lazy(() => import('./components/WelcomeModal'))
+const DemoDialog = lazy(() => import('./components/DemoDialog'))
+const HelpBot = lazy(() => import('./components/HelpBot'))
+const ConfirmDialog = lazy(() => import('./components/ConfirmDialog'))
 
 /**
  * State configuration for the application-wide confirmation/alert dialog.
@@ -57,6 +63,7 @@ function getErrorMsg(error: unknown): string {
  * - Application-wide settings and modals
  */
 function App() {
+  const runtimeCapabilities = getRuntimeCapabilities()
   // --- State Definitions ---
   
   /** Current source code in the active editor */
@@ -67,6 +74,9 @@ function App() {
   
   /** Reference for tracking unsaved changes across renders without re-triggering effects */
   const hasUnsavedChangesRef = useRef(false)
+  const isMountedRef = useRef(true)
+  const welcomeCheckDelayRef = useRef<number | null>(null)
+  const suppressBackendResetRef = useRef(false)
   
   /** Base64 preview image (if the backend supports 2D rasterization) */
   const [previewImage, setPreviewImage] = useState<string | null>(null)
@@ -90,7 +100,7 @@ function App() {
   const [, setLlmSettings] = useState<Settings['llm'] | null>(null)
   
   /** Active CAD engine context ('openscad' or 'build123d') */
-  const [cadBackend, setCadBackend] = useState<CADBackend>('openscad')
+  const [cadBackend, setCadBackend] = useState<CADBackend>(getDefaultRuntimeBackend(runtimeCapabilities))
   
   /** Tracks gateway/openrouter key state for menu/UI; null when not applicable */
   const [, setOpenRouterKeySet] = useState<boolean | null>(null)
@@ -218,17 +228,35 @@ function App() {
   const demoState = useDemo(demoSetters)
   const { isDemoDialogOpen, setIsDemoDialogOpen, runDemo } = demoState
 
+  useEffect(() => {
+    return () => {
+      isMountedRef.current = false
+      if (welcomeCheckDelayRef.current !== null) {
+        window.clearTimeout(welcomeCheckDelayRef.current)
+      }
+    }
+  }, [])
+
   const syncWelcomeAndDemoState = useCallback(async () => {
     try {
       const shouldShow = await window.electronAPI.shouldShowWelcome()
+      if (!isMountedRef.current) return
       setIsWelcomeOpen(shouldShow)
       if (!shouldShow) {
-        await new Promise((resolve) => setTimeout(resolve, 500))
+        await new Promise<void>((resolve) => {
+          welcomeCheckDelayRef.current = window.setTimeout(() => {
+            welcomeCheckDelayRef.current = null
+            resolve()
+          }, 500)
+        })
+        if (!isMountedRef.current) return
         const settings = await window.electronAPI.getSettings()
+        if (!isMountedRef.current) return
         if (!settings.hasSeenDemo) setIsDemoDialogOpen(true)
       }
     } catch (error) {
       logger.error('Failed to check welcome status', error)
+      if (!isMountedRef.current) return
       setIsWelcomeOpen(true)
     }
   }, [setIsDemoDialogOpen])
@@ -241,7 +269,11 @@ function App() {
     try {
       const settings = await window.electronAPI.getSettings()
       setLlmSettings(settings.llm)
-      setCadBackend(settings.cadBackend || 'openscad')
+      const nextBackend =
+        settings.cadBackend && supportsBackend(settings.cadBackend, runtimeCapabilities)
+          ? settings.cadBackend
+          : getDefaultRuntimeBackend(runtimeCapabilities)
+      setCadBackend(nextBackend)
       if (settings.llm.provider === 'gateway') {
         setOpenRouterKeySet(!!settings.llm.gatewayLicenseKey?.trim())
       } else if (settings.llm.provider === 'openrouter') {
@@ -254,7 +286,7 @@ function App() {
     } catch (error) {
       logger.error('Failed to load settings', error)
     }
-  }, [])
+  }, [runtimeCapabilities])
 
   useEffect(() => {
     refreshSettings()
@@ -263,6 +295,11 @@ function App() {
   const prevCadBackendRef = useRef<CADBackend>(cadBackend)
   useEffect(() => {
     if (prevCadBackendRef.current !== cadBackend) {
+      if (suppressBackendResetRef.current) {
+        suppressBackendResetRef.current = false
+        prevCadBackendRef.current = cadBackend
+        return
+      }
       setMessages(fileOps.getDefaultMessages(cadBackend))
       setCode(fileOps.DEFAULT_CODE)
       fileOps.setOriginalCode(fileOps.DEFAULT_CODE)
@@ -294,18 +331,20 @@ function App() {
    * Triggers the STL generation process for the current code.
    * Communicates with the main process to execute the CAD engine.
    */
-  const handleRender = useCallback(async () => {
+  const renderCode = useCallback(async (sourceCode: string) => {
     setIsRendering(true)
     setRenderError(null)
     try {
-      const result = await window.electronAPI.renderStl(code)
+      const result = await window.electronAPI.renderStl(sourceCode)
       if (result.success && result.stlBase64) {
         setStlBase64(result.stlBase64)
         setPreviewImage(null)
+        return true
       } else if (!result.success && 'error' in result && result.error) {
         logger.error('Render returned a failure result', {
+          backend: cadBackend,
           error: result.error,
-          codeLength: code.length
+          codeLength: sourceCode.length
         })
         setRenderError(result.error)
       }
@@ -315,7 +354,74 @@ function App() {
     } finally {
       setIsRendering(false)
     }
-  }, [code])
+    return false
+  }, [cadBackend])
+
+  const handleRender = useCallback(async () => {
+    await renderCode(code)
+  }, [code, renderCode])
+
+  const handleApplyCodeFromChat = useCallback(
+    async (nextCode: string) => {
+      fileOps.handleCodeChange(nextCode)
+      return renderCode(nextCode)
+    },
+    [fileOps, renderCode]
+  )
+
+  const persistBackendSelection = useCallback(async (nextBackend: CADBackend) => {
+    try {
+      const currentSettings = await window.electronAPI.getSettings()
+      await window.electronAPI.saveSettings({
+        ...currentSettings,
+        cadBackend: nextBackend
+      })
+    } catch (error) {
+      logger.warn('Failed to persist restored project backend', error)
+    }
+  }, [])
+
+  const applyLoadedProject = useCallback(
+    async (project: NonNullable<Awaited<ReturnType<typeof window.electronAPI.loadProject>>['project']>, filePath: string) => {
+      const persistedProjectBackend = project.cadBackend ?? project.backend
+      const restoredBackend =
+        persistedProjectBackend && supportsBackend(persistedProjectBackend, runtimeCapabilities)
+          ? persistedProjectBackend
+          : getDefaultRuntimeBackend(runtimeCapabilities)
+
+      if (restoredBackend !== cadBackend) {
+        suppressBackendResetRef.current = true
+        setCadBackend(restoredBackend)
+      }
+
+      await persistBackendSelection(restoredBackend)
+
+      setCode(project.code ?? fileOps.DEFAULT_CODE)
+      setStlBase64(project.stlBase64 ?? null)
+      setPreviewImage(null)
+      setRenderError(null)
+      setPendingSnapshots([])
+      setPendingDiagnosis(null)
+      fileOps.setCurrentFilePath(filePath)
+      fileOps.setOriginalCode(project.code ?? fileOps.DEFAULT_CODE)
+      fileOps.setHasUnsavedChanges(false)
+      setEditorKey((prev) => prev + 1)
+
+      if (Array.isArray(project.chat)) {
+        setMessages(
+          project.chat.map((m) => ({
+            ...m,
+            timestamp: typeof m.timestamp === 'string' ? new Date(m.timestamp) : m.timestamp
+          }))
+        )
+      } else {
+        setMessages(fileOps.getDefaultMessages(restoredBackend))
+      }
+
+      return restoredBackend
+    },
+    [cadBackend, fileOps, persistBackendSelection, runtimeCapabilities]
+  )
 
   /**
    * Updates the native window title bar based on current file and modification status.
@@ -349,21 +455,7 @@ function App() {
         if (!result.canceled && result.filePath) {
           if (result.isProject && result.project) {
             const project = result.project
-            const chat: Message[] = project.chat
-              ? project.chat.map((m) => ({
-                  ...m,
-                  timestamp: typeof m.timestamp === 'string' ? new Date(m.timestamp) : (m.timestamp as Date)
-                }))
-              : fileOps.getDefaultMessages(cadBackend)
-            setCode(project.code ?? fileOps.DEFAULT_CODE)
-            setMessages(chat)
-            setStlBase64(project.stlBase64 ?? null)
-            setPreviewImage(null)
-            setRenderError(null)
-            fileOps.setCurrentFilePath(result.filePath)
-            fileOps.setOriginalCode(project.code ?? fileOps.DEFAULT_CODE)
-            fileOps.setHasUnsavedChanges(false)
-            setEditorKey((prev) => prev + 1)
+            await applyLoadedProject(project, result.filePath)
           } else if (result.code !== undefined) {
             setCode(result.code)
             fileOps.setCurrentFilePath(result.filePath)
@@ -400,6 +492,7 @@ function App() {
     [
       confirmUnsavedChanges,
       loadRecentFiles,
+      applyLoadedProject,
       cadBackend,
       showAlert,
       showConfirm,
@@ -463,7 +556,8 @@ function App() {
       savedAt: new Date().toISOString(),
       code,
       stlBase64,
-      chat: messages.map((m) => ({ ...m, timestamp: m.timestamp.toISOString() }))
+      chat: messages.map((m) => ({ ...m, timestamp: m.timestamp.toISOString() })),
+      cadBackend
     }
     try {
       const result = await window.electronAPI.saveProject(project, fileOps.currentFilePath ?? undefined)
@@ -476,7 +570,7 @@ function App() {
     } catch (error: unknown) {
       logger.error('Project save failed', error)
     }
-  }, [code, stlBase64, messages, fileOps, loadRecentFiles])
+  }, [cadBackend, code, stlBase64, messages, fileOps, loadRecentFiles])
 
   /**
    * Restores a .torrify project from disk.
@@ -497,29 +591,12 @@ function App() {
         return
       }
       const project = result.project
-      setCode(project.code ?? fileOps.DEFAULT_CODE)
-      setStlBase64(project.stlBase64 ?? null)
-      setPreviewImage(null)
-      setRenderError(null)
-      fileOps.setCurrentFilePath(result.filePath)
-      fileOps.setOriginalCode(project.code ?? fileOps.DEFAULT_CODE)
-      fileOps.setHasUnsavedChanges(false)
-      setEditorKey((prev) => prev + 1)
-      if (Array.isArray(project.chat)) {
-        setMessages(
-          project.chat.map((m) => ({
-            ...m,
-            timestamp: typeof m.timestamp === 'string' ? new Date(m.timestamp) : m.timestamp
-          }))
-        )
-      } else {
-        setMessages(fileOps.getDefaultMessages(cadBackend))
-      }
+      await applyLoadedProject(project, result.filePath)
       await loadRecentFiles()
     } catch (error: unknown) {
       await showAlert('Load Project Failed', `Failed to load project: ${getErrorMsg(error)}`)
     }
-  }, [showAlert, fileOps, cadBackend, loadRecentFiles])
+  }, [showAlert, applyLoadedProject, loadRecentFiles])
 
   /**
    * Exports raw source code to a backend-specific file (e.g., .scad or .py).
@@ -595,6 +672,7 @@ function App() {
         <div className="flex items-center gap-2">
           <FileToolbar
             currentFilePath={fileOps.currentFilePath}
+            canOpenRecentFiles={runtimeCapabilities.supportsRecentFileReopen}
             recentFiles={recentFiles}
             isRecentMenuOpen={isRecentMenuOpen}
             setIsRecentMenuOpen={setIsRecentMenuOpen}
@@ -628,7 +706,7 @@ function App() {
             currentCode={code}
             pendingSnapshots={pendingSnapshots}
             onSnapshotsSent={() => setPendingSnapshots([])}
-            onApplyCode={fileOps.handleCodeChange}
+            onApplyCode={handleApplyCodeFromChat}
             messages={messages}
             setMessages={setMessages}
             cadBackend={cadBackend}
@@ -666,44 +744,46 @@ function App() {
         </div>
       </div>
 
-      <ConfirmDialog
-        isOpen={!!dialogState}
-        title={dialogState?.title ?? ''}
-        message={dialogState?.message ?? ''}
-        confirmLabel={dialogState?.confirmLabel}
-        cancelLabel={dialogState?.cancelLabel}
-        showCancel={dialogState?.showCancel}
-        onConfirm={() => dialogState?.onConfirm()}
-        onCancel={() => dialogState?.onCancel?.()}
-      />
+      <Suspense fallback={null}>
+        <ConfirmDialog
+          isOpen={!!dialogState}
+          title={dialogState?.title ?? ''}
+          message={dialogState?.message ?? ''}
+          confirmLabel={dialogState?.confirmLabel}
+          cancelLabel={dialogState?.cancelLabel}
+          showCancel={dialogState?.showCancel}
+          onConfirm={() => dialogState?.onConfirm()}
+          onCancel={() => dialogState?.onCancel?.()}
+        />
 
-      <SettingsModal
-        isOpen={isSettingsOpen}
-        initialTab={settingsInitialTab ?? undefined}
-        onClose={async () => {
-          setIsSettingsOpen(false)
-          setSettingsInitialTab(null)
-          await refreshSettings()
-          await syncWelcomeAndDemoState()
-        }}
-      />
+        <SettingsModal
+          isOpen={isSettingsOpen}
+          initialTab={settingsInitialTab ?? undefined}
+          onClose={async () => {
+            setIsSettingsOpen(false)
+            setSettingsInitialTab(null)
+            await refreshSettings()
+            await syncWelcomeAndDemoState()
+          }}
+        />
 
-      <WelcomeModal
-        isOpen={isWelcomeOpen}
-        onClose={() => setIsWelcomeOpen(false)}
-        onOpenSettings={() => {
-          setIsWelcomeOpen(false)
-          setIsSettingsOpen(true)
-        }}
-      />
+        <WelcomeModal
+          isOpen={isWelcomeOpen}
+          onClose={() => setIsWelcomeOpen(false)}
+          onOpenSettings={() => {
+            setIsWelcomeOpen(false)
+            setIsSettingsOpen(true)
+          }}
+        />
 
-      <DemoDialog
-        isOpen={isDemoDialogOpen}
-        onClose={() => setIsDemoDialogOpen(false)}
-        onRunDemo={runDemo}
-      />
+        <DemoDialog
+          isOpen={isDemoDialogOpen}
+          onClose={() => setIsDemoDialogOpen(false)}
+          onRunDemo={runDemo}
+        />
 
-      <HelpBot isOpen={isHelpBotOpen} onClose={() => setIsHelpBotOpen(false)} />
+        <HelpBot isOpen={isHelpBotOpen} onClose={() => setIsHelpBotOpen(false)} />
+      </Suspense>
     </div>
   )
 }

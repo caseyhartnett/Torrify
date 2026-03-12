@@ -24,6 +24,7 @@ describe('GeneralSettings', () => {
     render(
       <GeneralSettings
         settings={defaultSettings}
+        supportsBuild123d={true}
         pathValid={null}
         pythonPathValid={null}
         backendValidation={null}
@@ -44,6 +45,7 @@ describe('GeneralSettings', () => {
     render(
       <GeneralSettings
         settings={defaultSettings}
+        supportsBuild123d={true}
         pathValid={null}
         pythonPathValid={null}
         backendValidation={null}
@@ -64,6 +66,7 @@ describe('GeneralSettings', () => {
     render(
       <GeneralSettings
         settings={settings}
+        supportsBuild123d={true}
         pathValid={null}
         pythonPathValid={null}
         backendValidation={null}
@@ -85,6 +88,7 @@ describe('GeneralSettings', () => {
     render(
       <GeneralSettings
         settings={defaultSettings}
+        supportsBuild123d={true}
         pathValid={null}
         pythonPathValid={null}
         backendValidation={null}
@@ -104,6 +108,7 @@ describe('GeneralSettings', () => {
     render(
       <GeneralSettings
         settings={defaultSettings}
+        supportsBuild123d={true}
         pathValid={true}
         pythonPathValid={null}
         backendValidation={null}
@@ -121,6 +126,7 @@ describe('GeneralSettings', () => {
     render(
       <GeneralSettings
         settings={defaultSettings}
+        supportsBuild123d={true}
         pathValid={false}
         pythonPathValid={null}
         backendValidation={null}
@@ -140,6 +146,7 @@ describe('GeneralSettings', () => {
     render(
       <GeneralSettings
         settings={defaultSettings}
+        supportsBuild123d={true}
         pathValid={null}
         pythonPathValid={null}
         backendValidation={null}
@@ -162,6 +169,7 @@ describe('GeneralSettings', () => {
     render(
       <GeneralSettings
         settings={defaultSettings}
+        supportsBuild123d={true}
         pathValid={null}
         pythonPathValid={null}
         backendValidation={null}
@@ -180,6 +188,7 @@ describe('GeneralSettings', () => {
     render(
       <GeneralSettings
         settings={defaultSettings}
+        supportsBuild123d={true}
         pathValid={null}
         pythonPathValid={null}
         backendValidation={{ valid: true, version: 'OpenSCAD 2024.01' }}
@@ -197,6 +206,7 @@ describe('GeneralSettings', () => {
     render(
       <GeneralSettings
         settings={defaultSettings}
+        supportsBuild123d={true}
         pathValid={null}
         pythonPathValid={null}
         backendValidation={{ valid: false, error: 'Backend not found' }}
@@ -208,5 +218,24 @@ describe('GeneralSettings', () => {
     )
 
     expect(screen.getByText(/Backend not found/)).toBeInTheDocument()
+  })
+
+  it('hides build123d when the runtime does not support it', () => {
+    render(
+      <GeneralSettings
+        settings={defaultSettings}
+        supportsBuild123d={false}
+        pathValid={null}
+        pythonPathValid={null}
+        backendValidation={null}
+        onPathChange={vi.fn()}
+        onPythonPathChange={vi.fn()}
+        onBackendChange={vi.fn()}
+        onBrowsePath={vi.fn()}
+      />
+    )
+
+    expect(screen.queryByRole('option', { name: /build123d/i })).not.toBeInTheDocument()
+    expect(screen.getByText(/desktop app/i)).toBeInTheDocument()
   })
 })

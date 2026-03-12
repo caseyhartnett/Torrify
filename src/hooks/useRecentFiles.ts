@@ -25,7 +25,11 @@ export function useRecentFiles() {
   }, [])
 
   useEffect(() => {
-    loadRecentFiles()
+    const timerId = window.setTimeout(() => {
+      void loadRecentFiles()
+    }, 0)
+
+    return () => window.clearTimeout(timerId)
   }, [loadRecentFiles])
 
   useEffect(() => {

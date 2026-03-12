@@ -2,7 +2,7 @@ import { defineConfig } from 'vitepress'
 
 export default defineConfig({
   title: 'Torrify Docs',
-  description: 'Documentation for Torrify - AI-assisted CAD IDE',
+  description: 'Documentation for Torrify across the web app and desktop app',
   base: '/docs/',
   themeConfig: {
     nav: [
@@ -21,9 +21,10 @@ export default defineConfig({
           text: 'Getting Started',
           items: [
             { text: 'Overview', link: '/getting-started/' },
-            { text: 'Installation', link: '/getting-started/installation' },
+            { text: 'Start Here', link: '/getting-started/START_HERE' },
+            { text: 'Install or Access Torrify', link: '/getting-started/installation' },
             { text: 'Quickstart', link: '/getting-started/QUICKSTART' },
-            { text: 'Start App', link: '/getting-started/START_APP' },
+            { text: 'Start Desktop App', link: '/getting-started/START_APP' },
             { text: 'Troubleshooting', link: '/getting-started/TROUBLESHOOTING' }
           ]
         }
@@ -40,8 +41,7 @@ export default defineConfig({
             { text: 'Image Import', link: '/features/IMAGE_IMPORT' },
             { text: 'Knowledge Base', link: '/features/KNOWLEDGE_BASE' },
             { text: 'Menu Bar', link: '/features/MENU_BAR' },
-            { text: "What's New", link: '/features/WHATS_NEW' },
-            { text: 'Parameter Slider Tab (PRO)', link: '/features/PARAMETER_PANEL_PLAN' }
+            { text: "What's New", link: '/features/WHATS_NEW' }
           ]
         }
       ],
@@ -52,6 +52,7 @@ export default defineConfig({
             { text: 'Overview', link: '/developer/' },
             { text: 'Developer Guide', link: '/developer/README' },
             { text: 'Testing', link: '/developer/TESTING' },
+            { text: 'Web Deployment', link: '/developer/WEB_DEPLOYMENT' },
             { text: 'Architecture', link: '/architecture/' }
           ]
         }
@@ -62,8 +63,8 @@ export default defineConfig({
           items: [
             { text: 'Overview', link: '/architecture/' },
             { text: 'System Architecture', link: '/architecture/ARCHITECTURE' },
-            { text: 'Windows Build Requirements', link: '/architecture/WINDOWS_BUILD_REQUIREMENTS' },
-            { text: 'Pricing Analysis', link: '/architecture/PRO_PRICING_ANALYSIS' }
+            { text: 'Web Runtime Transition', link: '/architecture/WEBSERVICE_TRANSITION_PLAN' },
+            { text: 'Windows Build Requirements', link: '/architecture/WINDOWS_BUILD_REQUIREMENTS' }
           ]
         }
       ],
@@ -72,6 +73,7 @@ export default defineConfig({
           text: 'Reference',
           items: [
             { text: 'Overview', link: '/reference/' },
+            { text: 'Runtime Matrix', link: '/reference/RUNTIME_MATRIX' },
             { text: 'FAQ', link: '/reference/faq' },
             { text: 'Quick Reference', link: '/reference/QUICK_REFERENCE' },
             { text: 'Project Format', link: '/reference/PROJECT_FORMAT' }

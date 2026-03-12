@@ -15,6 +15,7 @@ interface TorrifyProject {
   code: string                // OpenSCAD or build123d source code
   stlBase64: string | null    // Base64-encoded STL file (null if not rendered)
   chat: ChatMessage[]         // Array of chat messages
+  cadBackend?: 'openscad' | 'build123d' // Backend used when the project was saved
 }
 
 interface ChatMessage {
@@ -35,6 +36,7 @@ interface ChatMessage {
   "savedAt": "2026-01-24T12:34:56.789Z",
   "code": "cube([10, 10, 10]);",
   "stlBase64": "U0FMVEVEX0ZJTEU...",
+  "cadBackend": "openscad",
   "chat": [
     {
       "id": 1,
@@ -88,6 +90,11 @@ interface ChatMessage {
 - **Required**: Yes
 - **Description**: Array of chat messages in chronological order. Includes both user messages and AI assistant responses, plus optional image attachments.
 
+### `cadBackend`
+- **Type**: `'openscad' | 'build123d'`
+- **Required**: No
+- **Description**: The CAD backend active when the project was saved. When present, Torrify restores that backend automatically on load.
+
 ### `imageDataUrls` (chat message)
 - **Type**: `string[]`
 - **Required**: No
@@ -100,7 +107,8 @@ When loading a project:
 2. STL is restored if available (enables 3D preview)
 3. Chat history is restored with timestamps converted back to `Date` objects
 4. If `chat` is missing or invalid, default welcome message is shown
-5. The CAD backend is **not stored** in the project file; switch backends manually if the code does not match the current backend.
+5. If `cadBackend` is present and supported by the current runtime, Torrify restores it automatically.
+6. If `cadBackend` is missing or unsupported by the current runtime, Torrify falls back to the runtime default backend.
 
 ## File Size Considerations
 
@@ -123,4 +131,3 @@ When adding new fields in future versions:
 - JSON is pretty-printed with 2-space indentation
 - Timestamps are stored as ISO strings for JSON compatibility
 - Base64 encoding is used for binary STL data
-

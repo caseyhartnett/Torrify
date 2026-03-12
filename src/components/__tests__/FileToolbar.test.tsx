@@ -5,6 +5,7 @@ import { FileToolbar } from '../FileToolbar'
 
 const defaultProps = {
   currentFilePath: null,
+  canOpenRecentFiles: true,
   recentFiles: [] as { filePath: string; lastOpened: string }[],
   isRecentMenuOpen: false,
   setIsRecentMenuOpen: vi.fn(),
@@ -71,6 +72,22 @@ describe('FileToolbar', () => {
   it('disables Recent button when recentFiles is empty', () => {
     render(<FileToolbar {...defaultProps} />)
     expect(screen.getByRole('button', { name: /recent/i })).toBeDisabled()
+  })
+
+  it('disables Recent button when runtime does not support reopening recent files', () => {
+    render(
+      <FileToolbar
+        {...defaultProps}
+        canOpenRecentFiles={false}
+        recentFiles={[{ filePath: 'C:\\a.scad', lastOpened: new Date().toISOString() }]}
+      />
+    )
+
+    expect(screen.getByRole('button', { name: /recent/i })).toBeDisabled()
+    expect(screen.getByRole('button', { name: /recent/i })).toHaveAttribute(
+      'title',
+      'Recent file reopen is only available in the desktop app'
+    )
   })
 
   it('toggles recent menu when Recent is clicked and recentFiles exist', async () => {

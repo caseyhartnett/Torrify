@@ -16,6 +16,13 @@ const mockRecentFiles = [
   { filePath: 'C:\\temp\\b.scad', lastOpened: '2026-01-02T12:00:00.000Z' }
 ]
 
+async function flushDeferredRecentFilesLoad() {
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    await Promise.resolve()
+  })
+}
+
 describe('useRecentFiles', () => {
   beforeEach(() => {
     vi.clearAllMocks()
@@ -26,9 +33,7 @@ describe('useRecentFiles', () => {
     vi.mocked(window.electronAPI.getRecentFiles).mockResolvedValue(mockRecentFiles)
     const { result } = renderHook(() => useRecentFiles())
 
-    await act(async () => {
-      await Promise.resolve()
-    })
+    await flushDeferredRecentFilesLoad()
 
     expect(window.electronAPI.getRecentFiles).toHaveBeenCalled()
     expect(result.current.recentFiles).toEqual(mockRecentFiles)
@@ -41,9 +46,7 @@ describe('useRecentFiles', () => {
 
     const { result } = renderHook(() => useRecentFiles())
 
-    await act(async () => {
-      await Promise.resolve()
-    })
+    await flushDeferredRecentFilesLoad()
     expect(result.current.recentFiles).toEqual([])
 
     await act(async () => {
@@ -56,9 +59,7 @@ describe('useRecentFiles', () => {
     vi.mocked(window.electronAPI.getRecentFiles).mockResolvedValue(mockRecentFiles)
     const { result } = renderHook(() => useRecentFiles())
 
-    await act(async () => {
-      await Promise.resolve()
-    })
+    await flushDeferredRecentFilesLoad()
 
     await act(() => {
       result.current.setIsRecentMenuOpen(true)
@@ -76,9 +77,7 @@ describe('useRecentFiles', () => {
     vi.mocked(window.electronAPI.getRecentFiles).mockResolvedValue(mockRecentFiles)
     const { result } = renderHook(() => useRecentFiles())
 
-    await act(async () => {
-      await Promise.resolve()
-    })
+    await flushDeferredRecentFilesLoad()
     await act(() => {
       result.current.setIsRecentMenuOpen(true)
     })
@@ -103,9 +102,7 @@ describe('useRecentFiles', () => {
     vi.mocked(window.electronAPI.getRecentFiles).mockResolvedValue(mockRecentFiles)
     const { result } = renderHook(() => useRecentFiles())
 
-    await act(async () => {
-      await Promise.resolve()
-    })
+    await flushDeferredRecentFilesLoad()
     await act(() => {
       result.current.setIsRecentMenuOpen(true)
     })
@@ -125,9 +122,7 @@ describe('useRecentFiles', () => {
     vi.mocked(window.electronAPI.getRecentFiles).mockResolvedValue(mockRecentFiles)
     const { result } = renderHook(() => useRecentFiles())
 
-    await act(async () => {
-      await Promise.resolve()
-    })
+    await flushDeferredRecentFilesLoad()
     await act(() => {
       result.current.setIsRecentMenuOpen(true)
     })
@@ -147,9 +142,7 @@ describe('useRecentFiles', () => {
     vi.mocked(window.electronAPI.getRecentFiles).mockResolvedValue(mockRecentFiles)
     const { result } = renderHook(() => useRecentFiles())
 
-    await act(async () => {
-      await Promise.resolve()
-    })
+    await flushDeferredRecentFilesLoad()
     expect(result.current.isRecentMenuOpen).toBe(false)
 
     act(() => {
@@ -162,9 +155,7 @@ describe('useRecentFiles', () => {
     vi.mocked(window.electronAPI.getRecentFiles).mockResolvedValue(mockRecentFiles)
     const { result } = renderHook(() => useRecentFiles())
 
-    await act(async () => {
-      await Promise.resolve()
-    })
+    await flushDeferredRecentFilesLoad()
     expect(result.current.isRecentMenuOpen).toBe(false)
 
     act(() => {
@@ -181,9 +172,7 @@ describe('useRecentFiles', () => {
     vi.mocked(window.electronAPI.getRecentFiles).mockResolvedValue(mockRecentFiles)
     const { result } = renderHook(() => useRecentFiles())
 
-    await act(async () => {
-      await Promise.resolve()
-    })
+    await flushDeferredRecentFilesLoad()
 
     act(() => {
       result.current.handleRecentMenuButtonKeyDown(keyEvent('ArrowUp') as ReactKeyboardEvent<HTMLButtonElement>)

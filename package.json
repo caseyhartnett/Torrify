@@ -5,12 +5,16 @@
   "main": "dist-electron/electron/main.cjs",
   "type": "module",
   "scripts": {
-    "dev": "vite",
-    "dev:web": "cross-env VITE_RUNTIME_TARGET=web vite",
-    "build": "tsc && cross-env VITE_RUNTIME_TARGET=desktop vite build && npm run build:electron",
-    "build:web": "tsc && cross-env VITE_RUNTIME_TARGET=web vite build",
+    "sync:branding": "node scripts/sync-branding-assets.cjs",
+    "dev": "npm run sync:branding && vite",
+    "dev:web": "npm run sync:branding && cross-env VITE_RUNTIME_TARGET=web vite",
+    "dev:web:test": "cross-env VITE_GATEWAY_URL=https://gateway.test VITE_WEB_RENDER_MODE=api VITE_RENDER_API_URL=http://127.0.0.1:4173 npm run dev:web --",
+    "build": "npm run sync:branding && tsc && cross-env VITE_RUNTIME_TARGET=desktop vite build && npm run build:electron",
+    "build:web": "npm run sync:branding && tsc && cross-env VITE_RUNTIME_TARGET=web vite build",
+    "build:web:test": "cross-env VITE_GATEWAY_URL=https://gateway.test VITE_WEB_RENDER_MODE=api VITE_RENDER_API_URL=http://127.0.0.1:4173 npm run build:web",
     "preview": "vite preview",
     "preview:web": "vite preview --outDir dist-web",
+    "preview:web:test": "cross-env VITE_GATEWAY_URL=https://gateway.test VITE_WEB_RENDER_MODE=api VITE_RENDER_API_URL=http://127.0.0.1:4173 npm run preview:web --",
     "electron": "electron .",
     "electron:dev": "concurrently \"cross-env VITE_RUNTIME_TARGET=desktop vite\" \"wait-on tcp:5173 && npm run build:electron && cross-env VITE_DEV_SERVER_URL=http://127.0.0.1:5173 electron .\"",
     "build:electron": "tsc -p tsconfig.electron.json && node rename-electron.cjs",
@@ -29,7 +33,7 @@
     "lint": "eslint src electron",
     "lint:fix": "eslint src electron --fix",
     "docs:dev": "vitepress dev docs",
-    "docs:build": "vitepress build docs",
+    "docs:build": "npm run sync:branding && vitepress build docs",
     "docs:preview": "vitepress preview docs",
     "generate:context": "node scripts/generate-context.cjs --all",
     "generate:context:openscad": "node scripts/generate-context.cjs --openscad",
@@ -96,7 +100,7 @@
           ]
         }
       ],
-      "icon": "build/icon.ico"
+      "icon": "build/icon.png"
     },
     "nsis": {
       "oneClick": false,

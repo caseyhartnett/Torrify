@@ -1,7 +1,9 @@
-import { useRef } from 'react'
-import StlViewer, { type StlViewerHandle } from './StlViewer'
+import { lazy, Suspense, useRef } from 'react'
+import type { StlViewerHandle } from './StlViewer'
 import type { CADBackend } from '../services/cad'
 import { BACKEND_NAMES } from '../services/cad'
+
+const StlViewer = lazy(() => import('./StlViewer'))
 
 /**
  * Props for the PreviewPanel component.
@@ -139,7 +141,15 @@ function PreviewPanel({
         {/* 3D STL Viewer (Preferred) */}
         {!isRendering && !error && stlBase64 && (
           <div className="w-full h-full shadow-inner">
-            <StlViewer ref={viewerRef} stlBase64={stlBase64} />
+            <Suspense
+              fallback={
+                <div className="w-full h-full flex items-center justify-center text-sm text-gray-400">
+                  Loading 3D viewer...
+                </div>
+              }
+            >
+              <StlViewer ref={viewerRef} stlBase64={stlBase64} />
+            </Suspense>
           </div>
         )}
 

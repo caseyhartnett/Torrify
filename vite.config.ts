@@ -26,7 +26,36 @@ export default defineConfig(() => {
           ]
     },
     build: {
-      outDir: isWebTarget ? 'dist-web' : 'dist'
+      outDir: isWebTarget ? 'dist-web' : 'dist',
+      rollupOptions: {
+        output: {
+          manualChunks(id) {
+            if (id.includes('node_modules')) {
+              if (id.includes('openscad-wasm')) {
+                return 'openscad-wasm'
+              }
+              if (id.includes('@monaco-editor/react') || id.includes('/monaco-editor/')) {
+                return 'monaco'
+              }
+              if (
+                id.includes('three/examples/jsm/controls/OrbitControls') ||
+                id.includes('three/examples/jsm/loaders/STLLoader')
+              ) {
+                return 'three-extras'
+              }
+              if (id.includes('/three/')) {
+                return 'three-core'
+              }
+              if (id.includes('/react/') || id.includes('/react-dom/')) {
+                return 'react-vendor'
+              }
+            }
+          }
+        }
+      }
+    },
+    worker: {
+      format: 'es'
     },
     plugins: [
       react(),
