@@ -31,6 +31,8 @@ dist-ssr
 *.sln
 *.sw?
 .cursor/
+.codex
+.codex/
 .eslintcache
 .stylelintcache
 *.tsbuildinfo
