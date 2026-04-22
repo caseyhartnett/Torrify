@@ -26,6 +26,7 @@ const defaultProps = {
   isLoadingOllamaModels: false,
   ollamaModelsError: null,
   onLLMChange: vi.fn(),
+  onAnalyticsEnabledChange: vi.fn(),
   onProviderChange: vi.fn(),
   onAccessModeChange: vi.fn(),
   onLoadOllamaModels: vi.fn().mockResolvedValue([])
@@ -126,5 +127,28 @@ describe('AISettings', () => {
     expect(input.type).toBe('password')
     expect(input.name).toBe('gatewayLicenseKey')
     expect(input.autocomplete).toBe('current-password')
+  })
+
+  it('renders analytics opt-out in managed web mode and toggles it', async () => {
+    const user = userEvent.setup()
+    const onAnalyticsEnabledChange = vi.fn()
+    const settings: Settings = {
+      ...defaultSettings,
+      analytics: { enabled: true },
+      llm: { ...defaultSettings.llm, provider: 'gateway', gatewayLicenseKey: '' }
+    }
+
+    render(
+      <AISettings
+        {...defaultProps}
+        settings={settings}
+        managedGatewayMode
+        onAnalyticsEnabledChange={onAnalyticsEnabledChange}
+      />
+    )
+
+    expect(screen.getByText(/Anonymous Product Analytics/)).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: /toggle anonymous product analytics/i }))
+    expect(onAnalyticsEnabledChange).toHaveBeenCalledWith(false)
   })
 })

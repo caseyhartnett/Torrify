@@ -75,6 +75,7 @@ interface AISettingsProps {
   isLoadingOllamaModels: boolean
   ollamaModelsError: string | null
   onLLMChange: (field: keyof Settings['llm'], value: string | number | boolean) => void
+  onAnalyticsEnabledChange: (enabled: boolean) => void
   onProviderChange: (provider: Settings['llm']['provider']) => void
   onAccessModeChange: (mode: 'byok' | 'pro') => void
   onLoadOllamaModels: (endpoint?: string) => Promise<OllamaModel[]>
@@ -88,6 +89,7 @@ export function AISettings({
   isLoadingOllamaModels,
   ollamaModelsError,
   onLLMChange,
+  onAnalyticsEnabledChange,
   onProviderChange,
   onAccessModeChange,
   onLoadOllamaModels
@@ -213,6 +215,30 @@ export function AISettings({
               ? 'Leave blank to use free tier limits. Add your Lemon Squeezy license key to continue with higher usage. This value is stored locally in this browser.'
               : 'Enter the license key for your PRO subscription.'}
           </p>
+        </div>
+      )}
+
+      {managedGatewayMode && (
+        <div className="flex items-center justify-between">
+          <div className="flex-1 pr-4">
+            <label className="block text-sm font-medium text-gray-300">Anonymous Product Analytics</label>
+            <p className="text-xs text-gray-500 mt-1">
+              Helps us understand feature usage like clicks, renders, exports, and .torrify uploads/downloads. File contents and license keys are never sent.
+            </p>
+          </div>
+          <button
+            onClick={() => onAnalyticsEnabledChange(settings.analytics?.enabled === false)}
+            className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+              settings.analytics?.enabled !== false ? 'bg-blue-600' : 'bg-gray-600'
+            }`}
+            aria-label="Toggle anonymous product analytics"
+          >
+            <span
+              className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                settings.analytics?.enabled !== false ? 'translate-x-6' : 'translate-x-1'
+              }`}
+            />
+          </button>
         </div>
       )}
 

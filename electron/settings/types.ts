@@ -42,6 +42,11 @@ export interface RecentFile {
   readonly lastOpened: string
 }
 
+export interface AnalyticsSettings {
+  /** Allows users to opt out of anonymous product analytics */
+  readonly enabled: boolean
+}
+
 /**
  * Global application settings state.
  */
@@ -54,6 +59,8 @@ export interface Settings {
   readonly build123dPythonPath: string
   /** AI Assistant configuration */
   readonly llm: LLMConfig
+  /** Web analytics preferences (desktop currently uses a no-op implementation) */
+  readonly analytics?: AnalyticsSettings
   /** History of recently opened files */
   readonly recentFiles: readonly RecentFile[]
   /** Track if the user has completed the onboarding demo */

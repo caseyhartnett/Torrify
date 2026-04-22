@@ -2,6 +2,7 @@ import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import electron from 'vite-plugin-electron'
 import renderer from 'vite-plugin-electron-renderer'
+import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -10,10 +11,14 @@ export default defineConfig(() => {
   const isWebTarget = process.env.VITE_RUNTIME_TARGET === 'web'
   const projectRoot = path.dirname(fileURLToPath(import.meta.url))
   const webApiStubPath = path.resolve(projectRoot, 'src/platform/web/electronAPI.stub.ts')
+  const packageJson = JSON.parse(fs.readFileSync(path.resolve(projectRoot, 'package.json'), 'utf-8')) as {
+    version?: string
+  }
 
   return {
     define: {
       __WEB_RUNTIME__: JSON.stringify(isWebTarget),
+      __APP_VERSION__: JSON.stringify(packageJson.version || '0.0.0'),
     },
     resolve: {
       alias: isWebTarget

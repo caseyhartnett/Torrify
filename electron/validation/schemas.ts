@@ -36,6 +36,11 @@ export const SettingsSchema = z.object({
     gatewayBaseUrl: z.string().max(512).optional(),
     gatewayLicenseKey: z.string().max(500).optional()
   }),
+  analytics: z
+    .object({
+      enabled: z.boolean()
+    })
+    .optional(),
   recentFiles: z
     .array(
       z.object({

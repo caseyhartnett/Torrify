@@ -63,6 +63,9 @@ export function getDefaultSettings(): Settings {
       temperature: 0.7,
       maxTokens: 128000
     },
+    analytics: {
+      enabled: false
+    },
     recentFiles: []
   }
 }

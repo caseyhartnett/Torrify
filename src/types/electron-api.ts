@@ -17,6 +17,10 @@ export interface RecentFile {
   lastOpened: string
 }
 
+export interface AnalyticsSettings {
+  enabled: boolean
+}
+
 export interface ProjectMessage {
   id: number
   text: string
@@ -57,6 +61,7 @@ export interface Settings {
   openscadPath: string
   build123dPythonPath: string
   llm: LLMConfig
+  analytics?: AnalyticsSettings
   recentFiles?: RecentFile[]
   hasSeenDemo?: boolean
 }

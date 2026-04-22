@@ -65,6 +65,7 @@ Torrify ships in two runtime shapes. The web app is the easiest place to begin, 
 - [Developer Guide](./developer/README.md)
 - [Testing](./developer/TESTING.md)
 - [Web Deployment](./developer/WEB_DEPLOYMENT.md)
+- [Web Analytics Handoff](./developer/WEB_ANALYTICS.md)
 - [Architecture](./architecture/index.md)
 
 ### Security

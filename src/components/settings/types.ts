@@ -26,6 +26,10 @@ export interface RecentFile {
   readonly lastOpened: string
 }
 
+export interface AnalyticsSettings {
+  readonly enabled: boolean
+}
+
 /**
  * Global application configuration.
  * Note: recentFiles is mutable in the type so it is assignable to window.electronAPI.saveSettings (vite-env.d.ts).
@@ -35,6 +39,7 @@ export interface Settings {
   readonly openscadPath: string
   readonly build123dPythonPath: string
   readonly llm: LLMConfig
+  readonly analytics?: AnalyticsSettings
   readonly recentFiles?: RecentFile[]
   readonly hasSeenDemo?: boolean
 }

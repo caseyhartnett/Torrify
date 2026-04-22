@@ -1,6 +1,7 @@
 import { useRef, useEffect, useCallback, useState } from 'react'
 import { createLLMService, PROVIDER_NAMES, requiresApiKey, type LLMMessage, type StreamController } from '../services/llm'
 import type { CADBackend } from '../services/cad'
+import { trackAnalyticsEvent } from '../services/analytics'
 import { getRuntimeCapabilities } from '../platform/capabilities'
 import { logger } from '../utils/logger'
 
@@ -210,9 +211,15 @@ function ChatPanel({
     const files = e.target.files
     if (!files || files.length === 0) return
 
-    Array.from(files).forEach(file => {
-      if (!file.type.startsWith('image/')) return
-      
+    const imageFiles = Array.from(files).filter((file) => file.type.startsWith('image/'))
+    if (imageFiles.length > 0) {
+      trackAnalyticsEvent('image_attachment_added', {
+        source: 'chat',
+        count: imageFiles.length
+      })
+    }
+
+    imageFiles.forEach(file => {
       const reader = new FileReader()
       reader.onload = () => {
         const dataUrl = reader.result as string
@@ -574,6 +581,13 @@ ${pendingDiagnosis.code}
 
     const allImages = [...(pendingSnapshots || []), ...stagedImages]
     const hasImages = allImages.length > 0
+
+    trackAnalyticsEvent('chat_message_sent', {
+      source: 'chat',
+      backend: cadBackend,
+      hasImages,
+      imageCount: allImages.length
+    })
 
     const userMessage: Message = {
       id: Date.now(),

@@ -113,6 +113,9 @@ if (typeof global.window !== 'undefined') {
       temperature: 0.7,
       maxTokens: 2048,
     },
+    analytics: {
+      enabled: false,
+    },
     recentFiles: [],
   }),
   saveSettings: vi.fn().mockResolvedValue({ success: true }),
@@ -194,4 +197,3 @@ if (typeof global.window !== 'undefined') {
 if (typeof Element !== 'undefined') {
   Element.prototype.scrollIntoView = vi.fn()
 }
-

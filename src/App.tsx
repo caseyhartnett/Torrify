@@ -6,6 +6,7 @@ import { FileToolbar } from './components/FileToolbar'
 import { ProjectToolbar } from './components/ProjectToolbar'
 import { BACKEND_NAMES } from './services/cad'
 import type { CADBackend } from './services/cad'
+import { trackAnalyticsEvent } from './services/analytics'
 import { logger } from './utils/logger'
 import {
   getDefaultRuntimeBackend,
@@ -50,6 +51,11 @@ interface DialogState {
 function getErrorMsg(error: unknown): string {
   if (error instanceof Error) return error.message
   return typeof error === 'string' ? error : 'Unknown error'
+}
+
+function getRecentFileType(filePath: string): 'torrify' | 'source' {
+  const extension = filePath.toLowerCase().split('.').pop()
+  return extension === 'torrify' || extension === 'opencursor' || extension === 'json' ? 'torrify' : 'source'
 }
 
 /**
@@ -331,14 +337,24 @@ function App() {
    * Triggers the STL generation process for the current code.
    * Communicates with the main process to execute the CAD engine.
    */
-  const renderCode = useCallback(async (sourceCode: string) => {
+  const renderCode = useCallback(async (sourceCode: string, source: 'editor' | 'chat_apply' = 'editor') => {
     setIsRendering(true)
     setRenderError(null)
+    trackAnalyticsEvent('render_requested', {
+      source,
+      backend: cadBackend,
+      codeLength: sourceCode.length
+    })
     try {
       const result = await window.electronAPI.renderStl(sourceCode)
       if (result.success && result.stlBase64) {
         setStlBase64(result.stlBase64)
         setPreviewImage(null)
+        trackAnalyticsEvent('render_completed', {
+          source,
+          backend: cadBackend,
+          success: true
+        })
         return true
       } else if (!result.success && 'error' in result && result.error) {
         logger.error('Render returned a failure result', {
@@ -347,10 +363,22 @@ function App() {
           codeLength: sourceCode.length
         })
         setRenderError(result.error)
+        trackAnalyticsEvent('render_failed', {
+          source,
+          backend: cadBackend,
+          success: false,
+          errorType: 'render_result_error'
+        })
       }
     } catch (error: unknown) {
       logger.error('Render operation failed', error)
       setRenderError(getErrorMsg(error) || 'Failed to render geometry')
+      trackAnalyticsEvent('render_failed', {
+        source,
+        backend: cadBackend,
+        success: false,
+        errorType: error instanceof Error ? error.name : 'UnknownError'
+      })
     } finally {
       setIsRendering(false)
     }
@@ -364,10 +392,21 @@ function App() {
   const handleApplyCodeFromChat = useCallback(
     async (nextCode: string) => {
       fileOps.handleCodeChange(nextCode)
-      return renderCode(nextCode)
+      return renderCode(nextCode, 'chat_apply')
     },
     [fileOps, renderCode]
   )
+
+  const openSettings = useCallback((source: 'toolbar' | 'editor_panel' | 'welcome' | 'menu', tab?: SettingsTab) => {
+    if (tab) {
+      setSettingsInitialTab(tab)
+    }
+    trackAnalyticsEvent('settings_opened', {
+      source,
+      tab: tab ?? 'current'
+    })
+    setIsSettingsOpen(true)
+  }, [])
 
   const persistBackendSelection = useCallback(async (nextBackend: CADBackend) => {
     try {
@@ -469,6 +508,10 @@ function App() {
           }
           setIsRecentMenuOpen(false)
           await loadRecentFiles()
+          trackAnalyticsEvent('recent_file_opened', {
+            source: 'recent_menu',
+            fileType: getRecentFileType(result.filePath)
+          })
         } else if (result.error) {
           // Handle cases where a recent file was moved or deleted
           if (result.error.includes('no longer exists')) {
@@ -510,6 +553,9 @@ function App() {
       try {
         await window.electronAPI.clearRecentFiles()
         await loadRecentFiles()
+        trackAnalyticsEvent('recent_files_cleared', {
+          source: 'recent_menu'
+        })
       } catch (error) {
         logger.error('Failed to clear recent files', error)
       }
@@ -524,33 +570,68 @@ function App() {
     currentFilePath
   } = fileOps
 
+  const handleNewFileClick = useCallback(async () => {
+    trackAnalyticsEvent('new_file_clicked', {
+      source: 'file_action'
+    })
+    await handleNewFile()
+  }, [handleNewFile])
+
+  const handleOpenFileClick = useCallback(async () => {
+    trackAnalyticsEvent('open_file_clicked', {
+      source: 'file_action',
+      backend: cadBackend
+    })
+    await handleOpenFile()
+  }, [cadBackend, handleOpenFile])
+
+  const handleSaveFileClick = useCallback(async () => {
+    trackAnalyticsEvent('save_file_clicked', {
+      source: 'file_action',
+      backend: cadBackend
+    })
+    await handleSaveFile()
+  }, [cadBackend, handleSaveFile])
+
+  const handleSaveAsClick = useCallback(async () => {
+    trackAnalyticsEvent('save_as_clicked', {
+      source: 'file_action',
+      backend: cadBackend
+    })
+    await handleSaveAs()
+  }, [cadBackend, handleSaveAs])
+
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.ctrlKey && e.key === 'o') {
         e.preventDefault()
-        handleOpenFile()
+        handleOpenFileClick()
       }
       if (e.ctrlKey && e.key === 'n') {
         e.preventDefault()
-        handleNewFile()
+        handleNewFileClick()
       }
       if (e.ctrlKey && e.shiftKey && e.key === 'S') {
         e.preventDefault()
-        handleSaveAs()
+        handleSaveAsClick()
       }
       if (e.ctrlKey && e.key === 's' && !e.shiftKey && currentFilePath) {
         e.preventDefault()
-        handleSaveFile()
+        handleSaveFileClick()
       }
     }
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [currentFilePath, handleNewFile, handleOpenFile, handleSaveAs, handleSaveFile])
+  }, [currentFilePath, handleNewFileClick, handleOpenFileClick, handleSaveAsClick, handleSaveFileClick])
 
   /**
    * Persists the current IDE state (code + chat) into a .torrify project file.
    */
   const handleSaveProject = useCallback(async () => {
+    trackAnalyticsEvent('save_project_clicked', {
+      source: 'toolbar',
+      backend: cadBackend
+    })
     const project = {
       version: 1,
       savedAt: new Date().toISOString(),
@@ -576,6 +657,9 @@ function App() {
    * Restores a .torrify project from disk.
    */
   const handleLoadProject = useCallback(async () => {
+    trackAnalyticsEvent('load_project_clicked', {
+      source: 'toolbar'
+    })
     try {
       const result = await window.electronAPI.loadProject()
       if (!result || result.canceled) {
@@ -602,6 +686,10 @@ function App() {
    * Exports raw source code to a backend-specific file (e.g., .scad or .py).
    */
   const handleExportScad = useCallback(async () => {
+    trackAnalyticsEvent('export_source_clicked', {
+      source: 'toolbar',
+      backend: cadBackend
+    })
     try {
       await window.electronAPI.exportScad(code, cadBackend, fileOps.currentFilePath ?? undefined)
     } catch (error: unknown) {
@@ -613,6 +701,9 @@ function App() {
    * Exports rendered geometry to a standard STL file.
    */
   const handleExportStl = useCallback(async () => {
+    trackAnalyticsEvent('export_stl_clicked', {
+      source: 'toolbar'
+    })
     try {
       await window.electronAPI.exportStl(stlBase64, fileOps.currentFilePath ?? undefined)
     } catch (error: unknown) {
@@ -638,15 +729,15 @@ function App() {
   const [isHelpBotOpen, setIsHelpBotOpen] = useState(false)
 
   useMenuHandlers({
-    handleNewFile: fileOps.handleNewFile,
-    handleOpenFile: fileOps.handleOpenFile,
-    handleSaveFile: fileOps.handleSaveFile,
-    handleSaveAs: fileOps.handleSaveAs,
+    handleNewFile: handleNewFileClick,
+    handleOpenFile: handleOpenFileClick,
+    handleSaveFile: handleSaveFileClick,
+    handleSaveAs: handleSaveAsClick,
     handleExportScad,
     handleExportStl,
     handleRender,
     updateLlmSettings,
-    onOpenSettings: () => setIsSettingsOpen(true),
+    onOpenSettings: () => openSettings('menu'),
     onOpenHelpBot: () => setIsHelpBotOpen(true),
     onShowDemo: () => setIsDemoDialogOpen(true)
   })
@@ -679,10 +770,10 @@ function App() {
             recentMenuRef={recentMenuRef}
             recentMenuButtonRef={recentMenuButtonRef}
             recentMenuItemsRef={recentMenuItemsRef}
-            onNewFile={fileOps.handleNewFile}
-            onOpenFile={fileOps.handleOpenFile}
-            onSaveFile={fileOps.handleSaveFile}
-            onSaveAs={fileOps.handleSaveAs}
+            onNewFile={handleNewFileClick}
+            onOpenFile={handleOpenFileClick}
+            onSaveFile={handleSaveFileClick}
+            onSaveAs={handleSaveAsClick}
             onOpenRecentFile={handleOpenRecentFile}
             onClearRecentFiles={handleClearRecentFiles}
             onRecentMenuKeyDown={handleRecentMenuKeyDown}
@@ -694,7 +785,7 @@ function App() {
             onLoadProject={handleLoadProject}
             onExportScad={handleExportScad}
             onExportStl={handleExportStl}
-            onOpenSettings={() => setIsSettingsOpen(true)}
+            onOpenSettings={() => openSettings('toolbar')}
           />
         </div>
       </div>
@@ -723,10 +814,7 @@ function App() {
             editorKey={editorKey}
             cadBackend={cadBackend}
             isProAuthenticated={isProAuthenticated}
-            onOpenSettings={() => {
-              setSettingsInitialTab('ai')
-              setIsSettingsOpen(true)
-            }}
+            onOpenSettings={() => openSettings('editor_panel', 'ai')}
           />
         </div>
         <div className="w-[30%]">
@@ -772,7 +860,7 @@ function App() {
           onClose={() => setIsWelcomeOpen(false)}
           onOpenSettings={() => {
             setIsWelcomeOpen(false)
-            setIsSettingsOpen(true)
+            openSettings('welcome')
           }}
         />
 

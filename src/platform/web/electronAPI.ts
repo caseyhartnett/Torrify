@@ -13,13 +13,13 @@ import {
   extractContent,
   streamSseResponse
 } from '../../services/llm/utils'
+import { trackAnalyticsEvent } from '../../services/analytics'
 import { logger } from '../../utils/logger'
+import { getGatewayBaseUrls } from './gatewayConfig'
 import { OpenScadWasmRenderer } from './openscadRenderer'
 
 const SETTINGS_STORAGE_KEY = 'torrify.web.settings.v1'
 const RECENT_FILES_STORAGE_KEY = 'torrify.web.recent.v1'
-const DEFAULT_GATEWAY_BASE_URL = 'https://the-gateway-production.up.railway.app'
-const LEGACY_GATEWAY_BASE_URL = 'https://the-gatekeeper-production.up.railway.app'
 const DEFAULT_GATEWAY_MODEL = 'google/gemini-3-flash-preview'
 const DEFAULT_WEB_RENDER_MODE = 'wasm'
 const DEFAULT_WASM_RENDER_TIMEOUT_MS = 45000
@@ -37,60 +37,6 @@ const RENDER_CODE_PREVIEW_MAX_CHARS = 600
 
 function nowIso(): string {
   return new Date().toISOString()
-}
-
-function parseGatewayUrlList(value: string | undefined): string[] {
-  if (!value) {
-    return []
-  }
-  return value
-    .split(',')
-    .map((entry) => normalizeGatewayBaseUrl(entry))
-    .filter((entry): entry is string => !!entry)
-}
-
-function normalizeGatewayBaseUrl(value: string | undefined): string | undefined {
-  if (!value) {
-    return undefined
-  }
-
-  // Cloud build envs sometimes preserve internal whitespace/newlines.
-  const compact = value.replace(/\s+/g, '').trim()
-  if (!compact) {
-    return undefined
-  }
-
-  try {
-    const parsed = new URL(compact)
-    if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') {
-      return undefined
-    }
-    return `${parsed.origin}${parsed.pathname}`.replace(/\/+$/, '')
-  } catch {
-    return undefined
-  }
-}
-
-function uniqueDefinedUrls(values: Array<string | undefined>): string[] {
-  return Array.from(
-    new Set(
-      values
-        .map((value) => normalizeGatewayBaseUrl(value))
-        .filter((value): value is string => !!value)
-    )
-  )
-}
-
-function getGatewayBaseUrls(preferredUrl?: string): string[] {
-  const envUrl = import.meta.env.VITE_GATEWAY_URL
-  const envFallbackUrls = parseGatewayUrlList(import.meta.env.VITE_GATEWAY_FALLBACK_URLS)
-  return uniqueDefinedUrls([
-    preferredUrl,
-    envUrl,
-    ...envFallbackUrls,
-    DEFAULT_GATEWAY_BASE_URL,
-    LEGACY_GATEWAY_BASE_URL
-  ])
 }
 
 function getRenderBaseUrl(): string {
@@ -250,6 +196,9 @@ function normalizeSettings(input: Partial<Settings> | null | undefined): Setting
           : undefined,
       gatewayLicenseKey:
         typeof llm.gatewayLicenseKey === 'string' ? llm.gatewayLicenseKey : ''
+    },
+    analytics: {
+      enabled: input?.analytics?.enabled !== false
     },
     recentFiles: loadRecentFiles(),
     hasSeenDemo: typeof input?.hasSeenDemo === 'boolean' ? input.hasSeenDemo : false
@@ -646,16 +595,33 @@ async function loadProjectFromPicker(): Promise<{ canceled: boolean; project?: L
   if (!file) {
     return { canceled: true }
   }
+  trackAnalyticsEvent('project_upload_selected', {
+    source: 'file_picker',
+    fileType: 'torrify',
+    fileSizeBytes: file.size
+  })
   try {
     const raw = await readTextFile(file)
     const parsed = JSON.parse(raw) as LoadedProject
     addRecentFile(file.name)
+    trackAnalyticsEvent('project_upload_parsed', {
+      source: 'file_picker',
+      fileType: 'torrify',
+      success: true,
+      fileSizeBytes: file.size
+    })
     return {
       canceled: false,
       project: parsed,
       filePath: file.name
     }
   } catch (error) {
+    trackAnalyticsEvent('project_upload_parsed', {
+      source: 'file_picker',
+      fileType: 'torrify',
+      success: false,
+      errorType: error instanceof Error ? error.name : 'UnknownError'
+    })
     return {
       canceled: true,
       error: error instanceof Error ? error.message : 'Invalid project file'
@@ -683,6 +649,11 @@ function buildWebElectronAPI(): ElectronAPI {
         const filename = sanitizeFilename('project.torrify', 'project.torrify')
         const blob = new Blob([JSON.stringify(project, null, 2)], { type: 'application/json' })
         triggerDownload(blob, filename)
+        trackAnalyticsEvent('project_download_initiated', {
+          source: 'save_project',
+          fileType: 'torrify',
+          backend: project.cadBackend ?? 'openscad'
+        })
         return { canceled: false, filePath: filename }
       } catch (error) {
         return {
@@ -702,6 +673,11 @@ function buildWebElectronAPI(): ElectronAPI {
       const filename = basename.endsWith(`.${extension}`) ? basename : `${basename}.${extension}`
       triggerDownload(new Blob([code], { type: 'text/plain;charset=utf-8' }), filename)
       addRecentFile(filename)
+      trackAnalyticsEvent('source_export_initiated', {
+        source: 'export_source',
+        backend,
+        fileType: extension
+      })
       return { canceled: false, filePath: filename }
     },
 
@@ -715,6 +691,10 @@ function buildWebElectronAPI(): ElectronAPI {
       const arrayBuffer = new ArrayBuffer(bytes.byteLength)
       new Uint8Array(arrayBuffer).set(bytes)
       triggerDownload(new Blob([arrayBuffer], { type: 'model/stl' }), filename)
+      trackAnalyticsEvent('stl_export_initiated', {
+        source: 'export_stl',
+        fileType: 'stl'
+      })
       return { canceled: false, filePath: filename }
     },
 

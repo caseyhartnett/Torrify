@@ -16,6 +16,7 @@ import {
   type Settings,
   type SettingsTab
 } from './settings'
+import { refreshAnalyticsSettings, setAnalyticsEnabled } from '../services/analytics'
 
 interface SettingsModalProps {
   isOpen: boolean
@@ -121,6 +122,9 @@ function SettingsModal({ isOpen, onClose, initialTab }: SettingsModalProps) {
         loadedSettings = {
           ...loadedSettings,
           cadBackend: getDefaultRuntimeBackend(runtimeCapabilities),
+          analytics: {
+            enabled: loadedSettings.analytics?.enabled !== false
+          },
           llm: {
             ...loadedSettings.llm,
             provider: 'gateway',
@@ -323,6 +327,18 @@ function SettingsModal({ isOpen, onClose, initialTab }: SettingsModalProps) {
     }
   }
 
+  const handleAnalyticsEnabledChange = (enabled: boolean) => {
+    if (settings) {
+      setSettings({
+        ...settings,
+        analytics: {
+          enabled
+        }
+      })
+      setSaveMessage(null)
+    }
+  }
+
   const handleAccessModeChange = (mode: 'byok' | 'pro') => {
     if (!settings) return
     if (managedWebMode) {
@@ -429,6 +445,10 @@ function SettingsModal({ isOpen, onClose, initialTab }: SettingsModalProps) {
     setSaveMessage(null)
     try {
       await window.electronAPI.saveSettings(normalizedSettings)
+      if (managedWebMode) {
+        setAnalyticsEnabled(normalizedSettings.analytics?.enabled !== false)
+        await refreshAnalyticsSettings()
+      }
       setSaveMessage('Settings saved successfully!')
       closeTimerRef.current = window.setTimeout(() => {
         onClose()
@@ -536,6 +556,7 @@ function SettingsModal({ isOpen, onClose, initialTab }: SettingsModalProps) {
               isLoadingOllamaModels={isLoadingOllamaModels}
               ollamaModelsError={ollamaModelsError}
               onLLMChange={handleLLMChange}
+              onAnalyticsEnabledChange={handleAnalyticsEnabledChange}
               onProviderChange={handleProviderChange}
               onAccessModeChange={handleAccessModeChange}
               onLoadOllamaModels={loadOllamaModels}

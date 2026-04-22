@@ -45,6 +45,7 @@ npm run test:watch
 ## 🏗️ Architecture
 See [Architecture Guide](../architecture/ARCHITECTURE.md) for a high-level overview.
 For a user-facing desktop-vs-web breakdown, see [Runtime Matrix](../reference/RUNTIME_MATRIX.md).
+For hosted release rollout details, see [Web Deployment](WEB_DEPLOYMENT.md) and [Web Analytics Handoff](WEB_ANALYTICS.md).
 
 ### Directory Structure
 *   **`electron/`**: Main process (Node.js). Handles OS interaction, file I/O, and CAD spawning.
