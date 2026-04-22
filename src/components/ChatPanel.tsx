@@ -189,8 +189,11 @@ function ChatPanel({
   const streamControllerRef = useRef<StreamController | null>(null)
   const streamingMessageIdRef = useRef<number | null>(null)
   const onApplyCodeRef = useRef(onApplyCode)
+  const onDiagnosisSentRef = useRef(onDiagnosisSent)
+  const diagnosisInFlightRef = useRef(false)
   const sendToLlmRef = useRef<(userInput: string, imageDataUrls?: string[]) => Promise<void>>(async () => {})
   onApplyCodeRef.current = onApplyCode
+  onDiagnosisSentRef.current = onDiagnosisSent
 
   const runWhenIdle = useCallback((task: () => void): (() => void) => {
     if (typeof window.requestIdleCallback === 'function') {
@@ -354,7 +357,13 @@ function ChatPanel({
    * Prepares a diagnostic prompt containing the error message and the offending code.
    */
   useEffect(() => {
-    if (pendingDiagnosis && !isLoading) {
+    if (!pendingDiagnosis) {
+      diagnosisInFlightRef.current = false
+      return
+    }
+
+    if (!isLoading && !diagnosisInFlightRef.current) {
+      diagnosisInFlightRef.current = true
       const processDiagnosis = async () => {
         const backendName = cadBackend === 'build123d' ? 'build123d (Python)' : 'OpenSCAD'
         const codeBlockLang = cadBackend === 'build123d' ? 'python' : 'openscad'
@@ -377,9 +386,10 @@ ${pendingDiagnosis.code}
           sender: 'user',
           timestamp: new Date()
         }
+        setIsLoading(true)
         setMessages(prev => [...prev, userMessage])
         
-        onDiagnosisSent?.()
+        onDiagnosisSentRef.current?.()
         
         await sendToLlmRef.current(diagnosisText)
       }
@@ -388,7 +398,7 @@ ${pendingDiagnosis.code}
         logger.error('Failed to process automatic diagnosis request', error)
       })
     }
-  }, [pendingDiagnosis, isLoading, cadBackend, onDiagnosisSent, setMessages])
+  }, [pendingDiagnosis, isLoading, cadBackend, setMessages])
 
   /**
    * Main communication loop with the LLM. 

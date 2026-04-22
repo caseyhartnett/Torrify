@@ -50,6 +50,27 @@ function ChatPanelWithApplyCode({ onApplyCode }: { onApplyCode: (code: string) =
   return <ChatPanel messages={messages} setMessages={setMessages} onApplyCode={onApplyCode} />
 }
 
+function ChatPanelWithDelayedDiagnosisClear() {
+  const [messages, setMessages] = useState<Message[]>(defaultMessages)
+  const [pendingDiagnosis, setPendingDiagnosis] = useState<{ error: string; code: string } | null>({
+    error: 'Parser failed near line 1',
+    code: 'cube([10, 10, 10]);'
+  })
+
+  return (
+    <ChatPanel
+      messages={messages}
+      setMessages={setMessages}
+      pendingDiagnosis={pendingDiagnosis}
+      onDiagnosisSent={() => {
+        window.setTimeout(() => {
+          setPendingDiagnosis(null)
+        }, 25)
+      }}
+    />
+  )
+}
+
 async function renderChatPanel() {
   const utils = render(<ChatPanelWrapper />)
   await waitFor(() => {
@@ -314,5 +335,35 @@ describe('ChatPanel', () => {
       expect(onApplyCode).toHaveBeenCalledWith('cube([1, 1, 1]);\n')
     })
     expect(screen.queryByText(/Code applied and rendered/i)).not.toBeInTheDocument()
+  })
+
+  it('sends an automatic diagnosis only once while the parent is still clearing pending state', async () => {
+    const sendMessage = vi.fn().mockResolvedValue({
+      content: 'Try adding a semicolon.',
+      model: 'test-model',
+      usage: { promptTokens: 0, completionTokens: 0, totalTokens: 0 }
+    })
+
+    mockedCreateLLMService.mockReturnValue({
+      sendMessage,
+      supportsStreaming: vi.fn().mockReturnValue(false),
+      getProviderName: vi.fn().mockReturnValue('Mock Provider')
+    } as unknown as ReturnType<typeof createLLMService>)
+
+    render(<ChatPanelWithDelayedDiagnosisClear />)
+
+    await waitFor(() => {
+      expect(window.electronAPI.getSettings).toHaveBeenCalled()
+    })
+
+    await waitFor(() => {
+      expect(sendMessage).toHaveBeenCalledTimes(1)
+    })
+
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 50))
+    })
+
+    expect(sendMessage).toHaveBeenCalledTimes(1)
   })
 })

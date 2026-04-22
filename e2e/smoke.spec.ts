@@ -2,6 +2,9 @@ import { expect, test } from '@playwright/test'
 
 const SETTINGS_STORAGE_KEY = 'torrify.web.settings.v1'
 const RECENT_FILES_STORAGE_KEY = 'torrify.web.recent.v1'
+const gatewayRoutePattern =
+  /https:\/\/(gateway\.test|the-gateway-production\.up\.railway\.app|the-gatekeeper-production\.up\.railway\.app)\/api\/chat(?:\/free)?/
+const renderRoutePattern = /.+\/api\/render$/
 
 const asciiStl = [
   'solid smoke',
@@ -53,7 +56,7 @@ test.beforeEach(async ({ page }) => {
   )
 
   await page.route(
-    /https:\/\/(gateway\.test|the-gateway-production\.up\.railway\.app|the-gatekeeper-production\.up\.railway\.app)\/api\/chat(?:\/free)?/,
+    gatewayRoutePattern,
     async (route) => {
       if (route.request().method() === 'OPTIONS') {
         await route.fulfill({
@@ -81,7 +84,7 @@ test.beforeEach(async ({ page }) => {
     }
   )
 
-  await page.route(/.+\/api\/render$/, async (route) => {
+  await page.route(renderRoutePattern, async (route) => {
     if (route.request().method() === 'OPTIONS') {
       await route.fulfill({
         status: 204,
@@ -137,4 +140,108 @@ test('render action uses the configured web render API path', async ({ page }) =
   await renderButton.click()
 
   await expect(page.getByRole('button', { name: 'Send to AI' })).toBeEnabled()
+})
+
+test('render error diagnosis sends a single gateway request and stays responsive', async ({ page }) => {
+  let diagnosisRequestCount = 0
+
+  await page.getByPlaceholder('Type a message...').fill('Generate code for diagnosis')
+  await page.getByRole('button', { name: 'Send message' }).click()
+
+  await expect(page.getByText('Generated code for smoke test.')).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Send to AI' })).toBeEnabled()
+
+  await page.unroute(gatewayRoutePattern)
+  await page.route(gatewayRoutePattern, async (route) => {
+    if (route.request().method() === 'OPTIONS') {
+      await route.fulfill({
+        status: 204,
+        headers: {
+          'Access-Control-Allow-Origin': '*',
+          'Access-Control-Allow-Headers': 'Content-Type, X-License-Key',
+          'Access-Control-Allow-Methods': 'POST, OPTIONS'
+        }
+      })
+      return
+    }
+
+    const payload = route.request().postDataJSON() as {
+      messages?: Array<{ content?: string | Array<{ type: string; text?: string }> }>
+    }
+    const lastMessage = payload.messages?.[payload.messages.length - 1]
+    const lastContent = Array.isArray(lastMessage?.content)
+      ? lastMessage.content
+          .filter((part) => part.type === 'text' && typeof part.text === 'string')
+          .map((part) => part.text)
+          .join('\n')
+      : typeof lastMessage?.content === 'string'
+        ? lastMessage.content
+        : ''
+
+    if (lastContent.includes('Please help me understand and fix the error.')) {
+      diagnosisRequestCount += 1
+    }
+
+    await route.fulfill({
+      status: 200,
+      contentType: 'text/event-stream',
+      headers: {
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Headers': 'Content-Type, X-License-Key',
+        'Access-Control-Allow-Methods': 'POST, OPTIONS',
+        'Cache-Control': 'no-cache'
+      },
+      body: [
+        'data: {"choices":[{"delta":{"content":"<assistant>Diagnosis complete.</assistant>"}}]}',
+        '',
+        'data: [DONE]',
+        ''
+      ].join('\n')
+    })
+  })
+
+  await page.unroute(renderRoutePattern)
+  await page.route(renderRoutePattern, async (route) => {
+    if (route.request().method() === 'OPTIONS') {
+      await route.fulfill({
+        status: 204,
+        headers: {
+          'Access-Control-Allow-Origin': '*',
+          'Access-Control-Allow-Headers': 'Content-Type',
+          'Access-Control-Allow-Methods': 'POST, OPTIONS'
+        }
+      })
+      return
+    }
+
+    await route.fulfill({
+      status: 400,
+      contentType: 'application/json',
+      headers: {
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Headers': 'Content-Type',
+        'Access-Control-Allow-Methods': 'POST, OPTIONS'
+      },
+      body: JSON.stringify({
+        error: 'Parser error near line 1'
+      })
+    })
+  })
+
+  const renderButton = page.locator('button', { hasText: /refresh|render/i }).first()
+  await expect(renderButton).toBeEnabled()
+  await renderButton.click()
+
+  await expect(page.getByText('Render Error')).toBeVisible()
+  await expect(page.getByRole('button', { name: /Ask AI to Diagnose/i })).toBeVisible()
+
+  await page.getByRole('button', { name: /Ask AI to Diagnose/i }).click()
+
+  await expect(page.getByText('Diagnosis complete.')).toBeVisible()
+  await expect(page.getByText(/I got this error when trying to render my OpenSCAD code/i)).toHaveCount(1)
+
+  await page.waitForTimeout(300)
+
+  expect(diagnosisRequestCount).toBe(1)
+  await expect(page.getByRole('button', { name: 'Send message' })).toBeEnabled()
 })
