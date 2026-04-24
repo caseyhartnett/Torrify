@@ -114,6 +114,8 @@ export interface RenderPreflightSummary {
 export interface RenderDiagnostics {
   renderId: string
   route: RenderRoute
+  codeHash?: string
+  featureSignature?: string
   durationMs?: number
   timeoutMs?: number
   failureClass?: RenderFailureClass

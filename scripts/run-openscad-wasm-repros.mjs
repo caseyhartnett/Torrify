@@ -153,6 +153,42 @@ union() {
   }
 }
 `
+  },
+  {
+    name: 'dual_thread_shaft_heavy',
+    code: `
+$fn = 36;
+module thread_rib(offset_deg) {
+  linear_extrude(height=44, twist=1800, slices=220)
+    rotate(offset_deg)
+      translate([9,0,0]) square([2.1,1.0], center=true);
+}
+
+union() {
+  cylinder(h=44, r=7.5);
+  thread_rib(0);
+  thread_rib(180);
+}
+`
+  },
+  {
+    name: 'assembly_fasteners_50',
+    code: `
+$fn = 24;
+module bolt_like() {
+  union() {
+    cylinder(h=18, r=2);
+    translate([0,0,18]) cylinder(h=4, r=4.2, $fn=24);
+  }
+}
+
+union() {
+  cube([160,80,8], center=true);
+  for (x=[-50,-30,-10,10,30], y=[-25,-15,-5,5,15,25,35,-35,-45,45]) {
+    translate([x,y,4]) bolt_like();
+  }
+}
+`
   }
 ]
 
@@ -162,4 +198,49 @@ for (const reproCase of reproCases) {
   results.push(await runCase(reproCase.name, reproCase.code))
 }
 
-console.log(JSON.stringify({ generatedAt: new Date().toISOString(), results }, null, 2))
+const warnings = []
+for (const result of results) {
+  if ('steps' in result) {
+    if (!result.success) {
+      warnings.push({
+        name: result.name,
+        severity: 'high',
+        note: 'Warm OpenSCAD instance reuse failed across repeated renders.'
+      })
+    }
+    continue
+  }
+
+  if (!result.success) {
+    warnings.push({
+      name: result.name,
+      severity: 'high',
+      note: `Render failed: ${result.error}`
+    })
+    continue
+  }
+
+  if (result.durationMs >= 10_000) {
+    warnings.push({
+      name: result.name,
+      severity: 'high',
+      note: `Render took ${result.durationMs}ms`
+    })
+  } else if (result.durationMs >= 5_000) {
+    warnings.push({
+      name: result.name,
+      severity: 'medium',
+      note: `Render took ${result.durationMs}ms`
+    })
+  }
+
+  if (result.stlBytes >= 2_000_000) {
+    warnings.push({
+      name: result.name,
+      severity: 'medium',
+      note: `STL size ${result.stlBytes} bytes`
+    })
+  }
+}
+
+console.log(JSON.stringify({ generatedAt: new Date().toISOString(), warnings, results }, null, 2))

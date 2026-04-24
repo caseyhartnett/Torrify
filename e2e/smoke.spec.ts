@@ -261,6 +261,21 @@ test('3d viewer remains operational for orbit and zoom interactions', async ({ p
   await expect(page.getByRole('button', { name: 'Send to AI' })).toBeEnabled()
 })
 
+test('repeated renders keep the preview responsive', async ({ page }) => {
+  await setEditorCode(page, 'cube([14, 18, 22]);')
+
+  const refreshButton = page.getByRole('button', { name: 'Refresh' })
+  const viewerCanvas = page.locator('[data-testid="stl-viewer"] canvas')
+
+  for (const nextCode of ['cube([14, 18, 22]);', 'translate([0,0,4]) cube([18, 12, 10]);', 'cylinder(h=20, r=8, $fn=24);']) {
+    await setEditorCode(page, nextCode)
+    await expect(refreshButton).toBeEnabled()
+    await refreshButton.click()
+    await expect(viewerCanvas).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Send to AI' })).toBeEnabled()
+  }
+})
+
 test('render error diagnosis sends a single gateway request and stays responsive', async ({ page }) => {
   let diagnosisRequestCount = 0
 

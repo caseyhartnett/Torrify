@@ -355,6 +355,8 @@ function App() {
           backend: cadBackend,
           success: true,
           route: result.diagnostics?.route ?? 'unknown',
+          codeHash: result.diagnostics?.codeHash ?? null,
+          featureSignature: result.diagnostics?.featureSignature ?? null,
           durationMs: result.diagnostics?.durationMs ?? null,
           fallbackUsed: result.diagnostics?.fallbackUsed ?? false
         })
@@ -373,6 +375,8 @@ function App() {
           success: false,
           errorType: result.diagnostics?.failureClass || 'render_result_error',
           route: result.diagnostics?.route ?? 'unknown',
+          codeHash: result.diagnostics?.codeHash ?? null,
+          featureSignature: result.diagnostics?.featureSignature ?? null,
           failureStage: result.diagnostics?.failureStage ?? 'unknown',
           durationMs: result.diagnostics?.durationMs ?? null,
           fallbackAttempted: result.diagnostics?.fallbackAttempted ?? false,
