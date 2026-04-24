@@ -61,7 +61,7 @@ describe('PreviewPanel', () => {
   })
 
   it('displays error message when render fails', () => {
-    const errorMessage = 'OpenSCAD not found'
+    const errorMessage = 'OpenSCAD WASM render timed out after 45s'
     const mockOnDiagnoseError = vi.fn()
     render(
       <PreviewPanel 
@@ -77,7 +77,7 @@ describe('PreviewPanel', () => {
     
     expect(screen.getByText('Render Error')).toBeInTheDocument()
     expect(screen.getByText(errorMessage)).toBeInTheDocument()
-    expect(screen.getByText(/Syntax errors detected/i)).toBeInTheDocument()
+    expect(screen.getByText(/browser render budget was exceeded/i)).toBeInTheDocument()
     expect(screen.getByText('Ask AI to Diagnose')).toBeInTheDocument()
   })
 

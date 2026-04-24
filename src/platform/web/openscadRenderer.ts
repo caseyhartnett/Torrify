@@ -1,3 +1,4 @@
+import type { RenderFailureClass } from '../../types/electron-api'
 import { logger } from '../../utils/logger'
 
 interface WorkerRenderRequest {
@@ -11,6 +12,15 @@ interface WorkerRenderResponse {
   readonly success: boolean
   readonly stlBase64?: string
   readonly error?: string
+  readonly details?: {
+    initMs?: number
+    renderMs?: number
+    encodeMs?: number
+    stlBytes?: number
+    failureClass?: RenderFailureClass
+    workerLogTail?: string
+    failureStage?: 'wasm_init' | 'wasm_exec' | 'stl_encode'
+  }
 }
 
 interface PendingRequest {
@@ -89,7 +99,11 @@ export class OpenScadWasmRenderer {
       return {
         id: 'empty',
         success: false,
-        error: 'No OpenSCAD code provided for rendering.'
+        error: 'No OpenSCAD code provided for rendering.',
+        details: {
+          failureClass: 'empty_input',
+          failureStage: 'wasm_init'
+        }
       }
     }
 

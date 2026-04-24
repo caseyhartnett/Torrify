@@ -5,6 +5,10 @@ import type {
   LoadedProject,
   ProjectFile,
   RecentFile,
+  RenderDiagnostics,
+  RenderPreflightSummary,
+  RenderRoute,
+  RenderStlResult,
   Settings
 } from '../../types/electron-api'
 import {
@@ -17,6 +21,11 @@ import { trackAnalyticsEvent } from '../../services/analytics'
 import { logger } from '../../utils/logger'
 import { getGatewayBaseUrls } from './gatewayConfig'
 import { OpenScadWasmRenderer } from './openscadRenderer'
+import {
+  analyzeOpenScadRenderRisk,
+  buildUserFacingRenderMessage,
+  classifyRenderFailure
+} from './renderPreflight'
 
 const SETTINGS_STORAGE_KEY = 'torrify.web.settings.v1'
 const RECENT_FILES_STORAGE_KEY = 'torrify.web.recent.v1'
@@ -34,6 +43,10 @@ let cleanupBound = false
 type WebRenderMode = 'wasm' | 'api'
 const RENDER_CODE_PREVIEW_MAX_LINES = 12
 const RENDER_CODE_PREVIEW_MAX_CHARS = 600
+
+function nextRenderId(): string {
+  return `web-render-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
+}
 
 function nowIso(): string {
   return new Date().toISOString()
@@ -112,6 +125,95 @@ function logWebRenderFailure(stage: string, code: string, details: Record<string
     codePreview: summarizeRenderCode(code),
     ...details
   })
+}
+
+function analyticsValue(value: number | string | boolean | null | undefined): number | string | boolean | null {
+  return value ?? null
+}
+
+function trackRenderPreflight(renderId: string, route: RenderRoute, preflight: RenderPreflightSummary): void {
+  trackAnalyticsEvent('render_preflight_evaluated', {
+    renderId,
+    routeCandidate: route,
+    riskScore: preflight.riskScore,
+    riskLevel: preflight.riskLevel,
+    codeLength: preflight.codeLength,
+    lineCount: preflight.lineCount,
+    loopCount: preflight.loopCount,
+    booleanCount: preflight.booleanCount,
+    minkowskiCount: preflight.minkowskiCount,
+    hullCount: preflight.hullCount,
+    hullInLoopCount: preflight.hullInLoopCount,
+    threadSignalCount: preflight.threadSignalCount,
+    knurlSignalCount: preflight.knurlSignalCount,
+    highFnCount: preflight.highFnCount,
+    maxFnLiteral: analyticsValue(preflight.maxFnLiteral),
+    literalLoopProduct: preflight.literalLoopProduct,
+    estimatedAssemblyInstances: preflight.estimatedAssemblyInstances
+  })
+}
+
+function buildDiagnostics(
+  renderId: string,
+  route: RenderRoute,
+  preflight: RenderPreflightSummary,
+  overrides: Partial<RenderDiagnostics> = {}
+): RenderDiagnostics {
+  return {
+    renderId,
+    route,
+    fallbackAttempted: false,
+    fallbackUsed: false,
+    preflight,
+    ...overrides
+  }
+}
+
+function trackRenderFailure(renderId: string, diagnostics: RenderDiagnostics): void {
+  trackAnalyticsEvent('render_failed', {
+    renderId,
+    route: diagnostics.route,
+    failureClass: diagnostics.failureClass || 'unknown',
+    failureStage: diagnostics.failureStage || 'unknown',
+    durationMs: analyticsValue(diagnostics.durationMs),
+    timeoutMs: analyticsValue(diagnostics.timeoutMs),
+    fallbackAttempted: diagnostics.fallbackAttempted ?? false,
+    fallbackUsed: diagnostics.fallbackUsed ?? false,
+    preflightRiskScore: analyticsValue(diagnostics.preflight?.riskScore),
+    threadSignalCount: analyticsValue(diagnostics.preflight?.threadSignalCount),
+    knurlSignalCount: analyticsValue(diagnostics.preflight?.knurlSignalCount),
+    minkowskiCount: analyticsValue(diagnostics.preflight?.minkowskiCount),
+    hullInLoopCount: analyticsValue(diagnostics.preflight?.hullInLoopCount),
+    booleanCount: analyticsValue(diagnostics.preflight?.booleanCount)
+  })
+}
+
+function trackRenderSuccess(renderId: string, diagnostics: RenderDiagnostics): void {
+  trackAnalyticsEvent('render_completed', {
+    renderId,
+    route: diagnostics.route,
+    durationMs: analyticsValue(diagnostics.durationMs),
+    fallbackUsed: diagnostics.fallbackUsed ?? false,
+    stlBytes: analyticsValue(diagnostics.stlBytes),
+    preflightRiskScore: analyticsValue(diagnostics.preflight?.riskScore)
+  })
+}
+
+function shouldPreferApiRoute(preflight: RenderPreflightSummary): boolean {
+  return preflight.recommendedRoute === 'api'
+}
+
+function createRenderResult(
+  success: boolean,
+  diagnostics: RenderDiagnostics,
+  extras: Partial<RenderStlResult> = {}
+): RenderStlResult {
+  return {
+    success,
+    timestamp: Date.now(),
+    diagnostics,
+    ...extras
+  }
 }
 
 function getContextFilename(backend: CADBackend): string {
@@ -459,16 +561,27 @@ async function startGatewayStream(streamId: string, payload: LLMRequestPayload):
   }
 }
 
-async function renderStlViaApi(code: string): Promise<{ success: boolean; stlBase64?: string; timestamp: number; error?: string }> {
+async function renderStlViaApi(
+  code: string,
+  renderId: string,
+  preflight: RenderPreflightSummary,
+  options: { fallbackUsed?: boolean; fallbackReason?: string } = {}
+): Promise<RenderStlResult> {
   const renderBaseUrl = getRenderBaseUrl()
+  const requestStart = performance.now()
   if (!renderBaseUrl) {
     const error = 'Web render endpoint is not configured. Set VITE_RENDER_API_URL for web rendering.'
     logWebRenderFailure('API render is not configured', code, { error })
-    return {
-      success: false,
-      timestamp: Date.now(),
-      error
-    }
+    const failureClass = classifyRenderFailure(error, preflight)
+    return createRenderResult(false, buildDiagnostics(renderId, 'api', preflight, {
+      durationMs: Math.round(performance.now() - requestStart),
+      failureClass,
+      failureStage: 'api_request',
+      fallbackAttempted: options.fallbackUsed ?? false,
+      fallbackUsed: options.fallbackUsed ?? false,
+      fallbackReason: options.fallbackReason,
+      userMessage: buildUserFacingRenderMessage(failureClass, preflight)
+    }), { error })
   }
 
   try {
@@ -492,11 +605,13 @@ async function renderStlViaApi(code: string): Promise<{ success: boolean; stlBas
           ? data.data
           : undefined
     if (response.ok && stlBase64) {
-      return {
-        success: true,
-        stlBase64,
-        timestamp: Date.now()
-      }
+      return createRenderResult(true, buildDiagnostics(renderId, 'api', preflight, {
+        durationMs: Math.round(performance.now() - requestStart),
+        fallbackAttempted: options.fallbackUsed ?? false,
+        fallbackUsed: options.fallbackUsed ?? false,
+        fallbackReason: options.fallbackReason,
+        stlBytes: decodeBase64(stlBase64).byteLength
+      }), { stlBase64 })
     }
     const error = typeof data.error === 'string' ? data.error : `Render failed (${response.status})`
     logWebRenderFailure('API render returned a failure response', code, {
@@ -504,11 +619,16 @@ async function renderStlViaApi(code: string): Promise<{ success: boolean; stlBas
       status: response.status,
       error
     })
-    return {
-      success: false,
-      error,
-      timestamp: Date.now()
-    }
+    const failureClass = classifyRenderFailure(error, preflight)
+    return createRenderResult(false, buildDiagnostics(renderId, 'api', preflight, {
+      durationMs: Math.round(performance.now() - requestStart),
+      failureClass,
+      failureStage: 'api_response',
+      fallbackAttempted: options.fallbackUsed ?? false,
+      fallbackUsed: options.fallbackUsed ?? false,
+      fallbackReason: options.fallbackReason,
+      userMessage: buildUserFacingRenderMessage(failureClass, preflight)
+    }), { error })
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Render request failed'
     logWebRenderFailure('API render request threw an exception', code, {
@@ -516,51 +636,121 @@ async function renderStlViaApi(code: string): Promise<{ success: boolean; stlBas
       timeoutMs: getRenderTimeoutMs(),
       error: message
     })
-    return {
-      success: false,
-      error: message,
-      timestamp: Date.now()
-    }
+    const failureClass = classifyRenderFailure(message, preflight)
+    return createRenderResult(false, buildDiagnostics(renderId, 'api', preflight, {
+      durationMs: Math.round(performance.now() - requestStart),
+      timeoutMs: getRenderTimeoutMs(),
+      failureClass,
+      failureStage: 'api_request',
+      fallbackAttempted: options.fallbackUsed ?? false,
+      fallbackUsed: options.fallbackUsed ?? false,
+      fallbackReason: options.fallbackReason,
+      userMessage: buildUserFacingRenderMessage(failureClass, preflight)
+    }), { error: message })
   }
 }
 
-async function renderStlViaWasm(code: string): Promise<{ success: boolean; stlBase64?: string; timestamp: number; error?: string }> {
+async function renderStlViaWasm(code: string, renderId: string, preflight: RenderPreflightSummary): Promise<RenderStlResult> {
+  const requestStart = performance.now()
   try {
     const response = await wasmRenderer.renderStl(code, getWasmRenderTimeoutMs())
     if (!response.success) {
       logWebRenderFailure('WASM render returned a failure response', code, {
         timeoutMs: getWasmRenderTimeoutMs(),
-        error: response.error || 'Unknown error'
+        error: response.error || 'Unknown error',
+        workerLogTail: response.details?.workerLogTail
       })
     }
-    return {
-      success: response.success,
-      stlBase64: response.stlBase64,
-      timestamp: Date.now(),
-      error: response.error
+    if (response.success) {
+      return createRenderResult(true, buildDiagnostics(renderId, 'wasm', preflight, {
+        durationMs: Math.round(performance.now() - requestStart),
+        timeoutMs: getWasmRenderTimeoutMs(),
+        stlBytes: response.details?.stlBytes,
+        workerLogTail: response.details?.workerLogTail
+      }), {
+        stlBase64: response.stlBase64
+      })
     }
+
+    const error = response.error || 'OpenSCAD WASM render failed'
+    const failureClass = response.details?.failureClass || classifyRenderFailure(error, preflight)
+    return createRenderResult(false, buildDiagnostics(renderId, 'wasm', preflight, {
+      durationMs: Math.round(performance.now() - requestStart),
+      timeoutMs: getWasmRenderTimeoutMs(),
+      failureClass,
+      failureStage: response.details?.failureStage,
+      workerLogTail: response.details?.workerLogTail,
+      userMessage: buildUserFacingRenderMessage(failureClass, preflight)
+    }), { error })
   } catch (error) {
     const message = error instanceof Error ? error.message : 'OpenSCAD WASM render failed'
+    const failureClass = classifyRenderFailure(message, preflight)
     logWebRenderFailure('WASM render threw an exception', code, {
       timeoutMs: getWasmRenderTimeoutMs(),
       error: message
     })
-    return {
-      success: false,
-      timestamp: Date.now(),
-      error: message
-    }
+    return createRenderResult(false, buildDiagnostics(renderId, 'wasm', preflight, {
+      durationMs: Math.round(performance.now() - requestStart),
+      timeoutMs: getWasmRenderTimeoutMs(),
+      failureClass,
+      failureStage: 'wasm_exec',
+      userMessage: buildUserFacingRenderMessage(failureClass, preflight)
+    }), { error: message })
   }
 }
 
-async function renderStlWithPolicy(code: string): Promise<{ success: boolean; stlBase64?: string; timestamp: number; error?: string }> {
+async function renderStlWithPolicy(code: string): Promise<RenderStlResult> {
+  const renderId = nextRenderId()
+  const preflight = analyzeOpenScadRenderRisk(code)
   const mode = getWebRenderMode()
+  const canUseApi = !!getRenderBaseUrl()
+
+  trackRenderPreflight(renderId, preflight.recommendedRoute, preflight)
+
   if (mode === 'api') {
-    return renderStlViaApi(code)
+    const result = await renderStlViaApi(code, renderId, preflight)
+    if (result.success && result.diagnostics) {
+      trackRenderSuccess(renderId, result.diagnostics)
+    } else if (result.diagnostics) {
+      trackRenderFailure(renderId, result.diagnostics)
+    }
+    return result
   }
 
-  const wasmResult = await renderStlViaWasm(code)
+  if (shouldPreferApiRoute(preflight) && canUseApi) {
+    trackAnalyticsEvent('render_fallback_attempted', {
+      renderId,
+      route: 'api',
+      reason: 'preflight_high_risk',
+      preflightRiskScore: preflight.riskScore
+    })
+    const apiPreferredResult = await renderStlViaApi(code, renderId, preflight, {
+      fallbackUsed: true,
+      fallbackReason: 'preflight_high_risk'
+    })
+    if (apiPreferredResult.success && apiPreferredResult.diagnostics) {
+      trackAnalyticsEvent('render_fallback_completed', {
+        renderId,
+        route: 'api',
+        success: true
+      })
+      trackRenderSuccess(renderId, apiPreferredResult.diagnostics)
+    } else if (apiPreferredResult.diagnostics) {
+      trackAnalyticsEvent('render_fallback_completed', {
+        renderId,
+        route: 'api',
+        success: false
+      })
+      trackRenderFailure(renderId, apiPreferredResult.diagnostics)
+    }
+    return apiPreferredResult
+  }
+
+  const wasmResult = await renderStlViaWasm(code, renderId, preflight)
   if (wasmResult.success) {
+    if (wasmResult.diagnostics) {
+      trackRenderSuccess(renderId, wasmResult.diagnostics)
+    }
     return wasmResult
   }
 
@@ -571,23 +761,59 @@ async function renderStlWithPolicy(code: string): Promise<{ success: boolean; st
       apiFallbackEnabled: shouldAllowApiFallback(),
       apiFallbackConfigured: !!getRenderBaseUrl()
     })
+    if (wasmResult.diagnostics) {
+      trackRenderFailure(renderId, wasmResult.diagnostics)
+    }
     return wasmResult
   }
 
-  const apiResult = await renderStlViaApi(code)
+  trackAnalyticsEvent('render_fallback_attempted', {
+    renderId,
+    route: 'api',
+    reason: wasmResult.diagnostics?.failureClass || 'wasm_failure',
+    preflightRiskScore: preflight.riskScore
+  })
+  const apiResult = await renderStlViaApi(code, renderId, preflight, {
+    fallbackUsed: true,
+    fallbackReason: wasmResult.diagnostics?.failureClass || 'wasm_failure'
+  })
   if (apiResult.success) {
+    trackAnalyticsEvent('render_fallback_completed', {
+      renderId,
+      route: 'api',
+      success: true
+    })
+    if (apiResult.diagnostics) {
+      trackRenderSuccess(renderId, apiResult.diagnostics)
+    }
     return apiResult
   }
 
+  trackAnalyticsEvent('render_fallback_completed', {
+    renderId,
+    route: 'api',
+    success: false
+  })
   logWebRenderFailure('WASM render and API fallback both failed', code, {
     wasmError: wasmResult.error || 'Unknown error',
     apiError: apiResult.error || 'Unknown error'
   })
-  return {
-    success: false,
-    timestamp: Date.now(),
+  const combinedFailureClass = apiResult.diagnostics?.failureClass || wasmResult.diagnostics?.failureClass || 'unknown'
+  const diagnostics = buildDiagnostics(renderId, 'api', preflight, {
+    durationMs: (wasmResult.diagnostics?.durationMs || 0) + (apiResult.diagnostics?.durationMs || 0),
+    timeoutMs: getRenderTimeoutMs(),
+    failureClass: combinedFailureClass,
+    failureStage: apiResult.diagnostics?.failureStage || wasmResult.diagnostics?.failureStage,
+    fallbackAttempted: true,
+    fallbackUsed: true,
+    fallbackReason: wasmResult.diagnostics?.failureClass || 'wasm_failure',
+    workerLogTail: wasmResult.diagnostics?.workerLogTail,
+    userMessage: buildUserFacingRenderMessage(combinedFailureClass, preflight)
+  })
+  trackRenderFailure(renderId, diagnostics)
+  return createRenderResult(false, diagnostics, {
     error: `WASM render failed: ${wasmResult.error || 'Unknown error'} | API fallback failed: ${apiResult.error || 'Unknown error'}`
-  }
+  })
 }
 
 async function loadProjectFromPicker(): Promise<{ canceled: boolean; project?: LoadedProject; filePath?: string; error?: string }> {

@@ -72,6 +72,69 @@ export interface CADValidationResult {
   version?: string
 }
 
+export type RenderRoute = 'wasm' | 'api'
+
+export type RenderFailureClass =
+  | 'syntax'
+  | 'timeout'
+  | 'complexity'
+  | 'memory'
+  | 'worker_runtime'
+  | 'network'
+  | 'configuration'
+  | 'empty_input'
+  | 'unknown'
+
+export interface RenderPreflightSummary {
+  riskScore: number
+  riskLevel: 'low' | 'medium' | 'high'
+  recommendedRoute: RenderRoute
+  reasonCodes: string[]
+  codeLength: number
+  lineCount: number
+  moduleCount: number
+  loopCount: number
+  booleanCount: number
+  booleanDepthEstimate: number
+  minkowskiCount: number
+  hullCount: number
+  hullInLoopCount: number
+  threadSignalCount: number
+  knurlSignalCount: number
+  highFnCount: number
+  maxFnLiteral: number | null
+  maxLiteralLoopSpan: number
+  literalLoopProduct: number
+  transformCount: number
+  cylinderCount: number
+  polyhedronCount: number
+  estimatedAssemblyInstances: number
+}
+
+export interface RenderDiagnostics {
+  renderId: string
+  route: RenderRoute
+  durationMs?: number
+  timeoutMs?: number
+  failureClass?: RenderFailureClass
+  failureStage?: 'preflight' | 'wasm_init' | 'wasm_exec' | 'stl_encode' | 'api_request' | 'api_response'
+  fallbackAttempted?: boolean
+  fallbackUsed?: boolean
+  fallbackReason?: string
+  workerLogTail?: string
+  stlBytes?: number
+  userMessage?: string
+  preflight?: RenderPreflightSummary
+}
+
+export interface RenderStlResult {
+  success: boolean
+  stlBase64?: string
+  timestamp: number
+  error?: string
+  diagnostics?: RenderDiagnostics
+}
+
 export interface ContextResult {
   success: boolean
   content?: string
@@ -133,12 +196,7 @@ export interface ElectronAPI {
     image: string
     timestamp: number
   }>
-  renderStl: (code: string) => Promise<{
-    success: boolean
-    stlBase64?: string
-    timestamp: number
-    error?: string
-  }>
+  renderStl: (code: string) => Promise<RenderStlResult>
   saveProject: (project: ProjectFile, currentFilePath?: string) => Promise<{ canceled: boolean; filePath?: string; error?: string }>
   loadProject: () => Promise<{ canceled: boolean; project?: LoadedProject; filePath?: string; error?: string }>
   exportScad: (code: string, backend?: CADBackend, currentFilePath?: string) => Promise<{ canceled: boolean; filePath?: string }>

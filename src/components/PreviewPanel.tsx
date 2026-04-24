@@ -49,6 +49,32 @@ function PreviewPanel({
 }: PreviewPanelProps) {
   const viewerRef = useRef<StlViewerHandle | null>(null)
 
+  const getErrorFooter = (message: string): string => {
+    const normalized = message.toLowerCase()
+    if (normalized.includes('syntax') || normalized.includes('parser')) {
+      return 'OpenSCAD reported a syntax issue. Ask AI to diagnose the code structure and parser error.'
+    }
+    if (normalized.includes('thread')) {
+      return 'Threaded geometry is expensive in browser rendering. Try a simplified preview or switch to server render.'
+    }
+    if (normalized.includes('knurl')) {
+      return 'Knurled geometry often overwhelms browser rendering. A coarse preview or server render is usually more reliable.'
+    }
+    if (normalized.includes('minkowski')) {
+      return 'minkowski() can multiply facet count quickly. Consider a simpler preview shape or server render.'
+    }
+    if (normalized.includes('hull()') || normalized.includes('hull')) {
+      return 'Repeated hull() geometry can become too expensive for browser rendering. Reduce loop steps or render on the server.'
+    }
+    if (normalized.includes('assembly')) {
+      return 'Large assemblies render more reliably when you hide repeated fasteners or isolate a smaller subassembly first.'
+    }
+    if (normalized.includes('timed out')) {
+      return 'The browser render budget was exceeded. Reduce geometry detail or use the fallback render path.'
+    }
+    return 'This render failed because the model or render path needs attention. Ask AI to diagnose the geometry and rendering strategy.'
+  }
+
   /**
    * Captures a high-resolution screenshot from the active 3D viewport
    * and sends it to the chat system.
@@ -122,7 +148,7 @@ function PreviewPanel({
             )}
             
             <p className="text-xs text-gray-500 mt-4">
-              Syntax errors detected. Click "Ask AI to Diagnose" for automated troubleshooting.
+              {getErrorFooter(error)}
             </p>
           </div>
         )}

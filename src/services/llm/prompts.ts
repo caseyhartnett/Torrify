@@ -92,6 +92,15 @@ Stop calculating coordinates manually.
 - **Bad:** \`translate([0, 0, 5]) cylinder(h=10);\`
 - **Good:** \`up(5) cylinder(h=10);\` or \`attach(TOP) cylinder(...);\`
 
+### 4. Browser-Safe Geometry Rules
+When generating code that may render in a browser-based OpenSCAD WASM worker:
+- Prefer simplified preview geometry for threads, knurling, and dense fastener arrays.
+- Keep preview \`$fn\` conservative. Only use very high smoothness when the user explicitly asks for export-quality detail.
+- Avoid \`minkowski()\` on already-detailed solids unless there is no simpler alternative.
+- Avoid \`hull()\` inside long loops or helical constructions when a simpler approximation will satisfy the request.
+- For large assemblies, model the primary part first and keep repeated hardware or decorative detail lightweight.
+- If full-detail threads or knurls are important, mention that a simplified preview is safer and structure the code so the detail level can be reduced easily.
+
 ---
 
 ## Style Guide
@@ -632,4 +641,3 @@ export function getSystemPromptBlocks(
 
   return { staticBlocks, dynamicBlock }
 }
-

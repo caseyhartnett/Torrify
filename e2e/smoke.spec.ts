@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test'
+import { expect, test, type Page } from '@playwright/test'
 
 const SETTINGS_STORAGE_KEY = 'torrify.web.settings.v1'
 const RECENT_FILES_STORAGE_KEY = 'torrify.web.recent.v1'
@@ -7,15 +7,92 @@ const gatewayRoutePattern =
 const renderRoutePattern = /.+\/api\/render$/
 
 const asciiStl = [
-  'solid smoke',
-  'facet normal 0 0 1',
+  'solid smoke_cube',
+  'facet normal 0 0 -1',
   'outer loop',
   'vertex 0 0 0',
-  'vertex 1 0 0',
-  'vertex 0 1 0',
+  'vertex 20 0 0',
+  'vertex 20 20 0',
   'endloop',
   'endfacet',
-  'endsolid smoke'
+  'facet normal 0 0 -1',
+  'outer loop',
+  'vertex 0 0 0',
+  'vertex 20 20 0',
+  'vertex 0 20 0',
+  'endloop',
+  'endfacet',
+  'facet normal 0 0 1',
+  'outer loop',
+  'vertex 0 0 30',
+  'vertex 20 20 30',
+  'vertex 20 0 30',
+  'endloop',
+  'endfacet',
+  'facet normal 0 0 1',
+  'outer loop',
+  'vertex 0 0 30',
+  'vertex 0 20 30',
+  'vertex 20 20 30',
+  'endloop',
+  'endfacet',
+  'facet normal 0 -1 0',
+  'outer loop',
+  'vertex 0 0 0',
+  'vertex 20 0 30',
+  'vertex 20 0 0',
+  'endloop',
+  'endfacet',
+  'facet normal 0 -1 0',
+  'outer loop',
+  'vertex 0 0 0',
+  'vertex 0 0 30',
+  'vertex 20 0 30',
+  'endloop',
+  'endfacet',
+  'facet normal 0 1 0',
+  'outer loop',
+  'vertex 0 20 0',
+  'vertex 20 20 0',
+  'vertex 20 20 30',
+  'endloop',
+  'endfacet',
+  'facet normal 0 1 0',
+  'outer loop',
+  'vertex 0 20 0',
+  'vertex 20 20 30',
+  'vertex 0 20 30',
+  'endloop',
+  'endfacet',
+  'facet normal -1 0 0',
+  'outer loop',
+  'vertex 0 0 0',
+  'vertex 0 20 30',
+  'vertex 0 0 30',
+  'endloop',
+  'endfacet',
+  'facet normal -1 0 0',
+  'outer loop',
+  'vertex 0 0 0',
+  'vertex 0 20 0',
+  'vertex 0 20 30',
+  'endloop',
+  'endfacet',
+  'facet normal 1 0 0',
+  'outer loop',
+  'vertex 20 0 0',
+  'vertex 20 0 30',
+  'vertex 20 20 30',
+  'endloop',
+  'endfacet',
+  'facet normal 1 0 0',
+  'outer loop',
+  'vertex 20 0 0',
+  'vertex 20 20 30',
+  'vertex 20 20 0',
+  'endloop',
+  'endfacet',
+  'endsolid smoke_cube'
 ].join('\n')
 
 const gatewaySseBody = [
@@ -26,6 +103,14 @@ const gatewaySseBody = [
   'data: [DONE]',
   ''
 ].join('\n')
+
+async function setEditorCode(page: Page, code: string): Promise<void> {
+  const editorInput = page.getByRole('textbox', { name: 'Editor content' })
+  await expect(editorInput).toBeVisible()
+  await editorInput.click({ force: true })
+  await page.keyboard.press('Control+A')
+  await page.keyboard.type(code)
+}
 
 test.beforeEach(async ({ page }) => {
   await page.addInitScript(
@@ -130,14 +215,48 @@ test('managed web runtime streams chat through the gateway adapter', async ({ pa
 })
 
 test('render action uses the configured web render API path', async ({ page }) => {
-  await page.getByPlaceholder('Type a message...').fill('Generate code for render')
-  await page.getByRole('button', { name: 'Send message' }).click()
+  await setEditorCode(page, 'cube([10, 10, 10]);')
 
-  await expect(page.getByText('Generated code for smoke test.')).toBeVisible()
-
-  const renderButton = page.locator('button', { hasText: /refresh|render/i }).first()
+  const renderButton = page.getByRole('button', { name: 'Refresh' })
   await expect(renderButton).toBeEnabled()
   await renderButton.click()
+
+  await expect(page.locator('[data-testid="stl-viewer"] canvas')).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Send to AI' })).toBeEnabled()
+})
+
+test('3d viewer remains operational for orbit and zoom interactions', async ({ page }) => {
+  await setEditorCode(page, 'cube([10, 20, 30]);')
+
+  const renderButton = page.getByRole('button', { name: 'Refresh' })
+  await expect(renderButton).toBeEnabled()
+  await renderButton.click()
+
+  const viewerCanvas = page.locator('[data-testid="stl-viewer"] canvas')
+  await expect(viewerCanvas).toBeVisible()
+
+  const before = await viewerCanvas.evaluate((canvas) => (canvas as HTMLCanvasElement).toDataURL('image/png'))
+  const box = await viewerCanvas.boundingBox()
+  expect(box).not.toBeNull()
+  if (!box) {
+    throw new Error('Expected STL viewer canvas bounds')
+  }
+
+  await page.mouse.move(box.x + box.width * 0.5, box.y + box.height * 0.5)
+  await page.mouse.down()
+  await page.mouse.move(box.x + box.width * 0.72, box.y + box.height * 0.38, { steps: 12 })
+  await page.mouse.up()
+  await page.waitForTimeout(150)
+
+  const afterRotate = await viewerCanvas.evaluate((canvas) => (canvas as HTMLCanvasElement).toDataURL('image/png'))
+  expect(afterRotate).not.toBe(before)
+
+  await page.mouse.move(box.x + box.width * 0.5, box.y + box.height * 0.5)
+  await page.mouse.wheel(0, 700)
+  await page.waitForTimeout(150)
+
+  const afterZoom = await viewerCanvas.evaluate((canvas) => (canvas as HTMLCanvasElement).toDataURL('image/png'))
+  expect(afterZoom).not.toBe(afterRotate)
 
   await expect(page.getByRole('button', { name: 'Send to AI' })).toBeEnabled()
 })
@@ -145,11 +264,7 @@ test('render action uses the configured web render API path', async ({ page }) =
 test('render error diagnosis sends a single gateway request and stays responsive', async ({ page }) => {
   let diagnosisRequestCount = 0
 
-  await page.getByPlaceholder('Type a message...').fill('Generate code for diagnosis')
-  await page.getByRole('button', { name: 'Send message' }).click()
-
-  await expect(page.getByText('Generated code for smoke test.')).toBeVisible()
-  await expect(page.getByRole('button', { name: 'Send to AI' })).toBeEnabled()
+  await setEditorCode(page, 'cube([12, 12, 12]);')
 
   await page.unroute(gatewayRoutePattern)
   await page.route(gatewayRoutePattern, async (route) => {
@@ -200,35 +315,28 @@ test('render error diagnosis sends a single gateway request and stays responsive
     })
   })
 
-  await page.unroute(renderRoutePattern)
-  await page.route(renderRoutePattern, async (route) => {
-    if (route.request().method() === 'OPTIONS') {
-      await route.fulfill({
-        status: 204,
-        headers: {
-          'Access-Control-Allow-Origin': '*',
-          'Access-Control-Allow-Headers': 'Content-Type',
-          'Access-Control-Allow-Methods': 'POST, OPTIONS'
-        }
-      })
-      return
+  await page.evaluate(() => {
+    const globalWindow = window as typeof window & {
+      electronAPI: typeof window.electronAPI
     }
-
-    await route.fulfill({
-      status: 400,
-      contentType: 'application/json',
-      headers: {
-        'Access-Control-Allow-Origin': '*',
-        'Access-Control-Allow-Headers': 'Content-Type',
-        'Access-Control-Allow-Methods': 'POST, OPTIONS'
-      },
-      body: JSON.stringify({
-        error: 'Parser error near line 1'
-      })
+    globalWindow.electronAPI.renderStl = async () => ({
+      success: false,
+      timestamp: Date.now(),
+      error: 'Parser error near line 1',
+      diagnostics: {
+        renderId: 'playwright-diagnosis',
+        route: 'api',
+        failureClass: 'syntax',
+        failureStage: 'api_response',
+        fallbackAttempted: false,
+        fallbackUsed: false,
+        userMessage:
+          'OpenSCAD reported a syntax or parser error. Check for missing semicolons, braces, or invalid module calls.'
+      }
     })
   })
 
-  const renderButton = page.locator('button', { hasText: /refresh|render/i }).first()
+  const renderButton = page.getByRole('button', { name: 'Refresh' })
   await expect(renderButton).toBeEnabled()
   await renderButton.click()
 

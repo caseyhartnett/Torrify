@@ -353,21 +353,30 @@ function App() {
         trackAnalyticsEvent('render_completed', {
           source,
           backend: cadBackend,
-          success: true
+          success: true,
+          route: result.diagnostics?.route ?? 'unknown',
+          durationMs: result.diagnostics?.durationMs ?? null,
+          fallbackUsed: result.diagnostics?.fallbackUsed ?? false
         })
         return true
       } else if (!result.success && 'error' in result && result.error) {
         logger.error('Render returned a failure result', {
           backend: cadBackend,
           error: result.error,
-          codeLength: sourceCode.length
+          codeLength: sourceCode.length,
+          diagnostics: result.diagnostics
         })
-        setRenderError(result.error)
+        setRenderError(result.diagnostics?.userMessage || result.error)
         trackAnalyticsEvent('render_failed', {
           source,
           backend: cadBackend,
           success: false,
-          errorType: 'render_result_error'
+          errorType: result.diagnostics?.failureClass || 'render_result_error',
+          route: result.diagnostics?.route ?? 'unknown',
+          failureStage: result.diagnostics?.failureStage ?? 'unknown',
+          durationMs: result.diagnostics?.durationMs ?? null,
+          fallbackAttempted: result.diagnostics?.fallbackAttempted ?? false,
+          fallbackUsed: result.diagnostics?.fallbackUsed ?? false
         })
       }
     } catch (error: unknown) {

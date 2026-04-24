@@ -1,6 +1,8 @@
 /// <reference lib="webworker" />
 
 import { createOpenSCAD, type OpenSCADInstance } from 'openscad-wasm'
+import { classifyRenderFailure } from './renderPreflight'
+import type { RenderFailureClass } from '../../types/electron-api'
 
 interface RenderRequest {
   readonly id: string
@@ -13,9 +15,17 @@ interface RenderResponse {
   readonly success: boolean
   readonly stlBase64?: string
   readonly error?: string
+  readonly details?: {
+    initMs?: number
+    renderMs?: number
+    encodeMs?: number
+    stlBytes?: number
+    failureClass?: RenderFailureClass
+    workerLogTail?: string
+    failureStage?: 'wasm_init' | 'wasm_exec' | 'stl_encode'
+  }
 }
 
-let openscadPromise: Promise<OpenSCADInstance> | null = null
 const recentWorkerLogs: string[] = []
 const MAX_RECENT_LOGS = 20
 
@@ -78,19 +88,16 @@ function toBase64(text: string): string {
 }
 
 async function getOpenScad(): Promise<OpenSCADInstance> {
-  if (!openscadPromise) {
-    // Use a static import here so the worker bundle eagerly contains the
-    // OpenSCAD runtime instead of relying on nested dynamic imports.
-    openscadPromise = createOpenSCAD({
-      print: (text: string) => {
-        rememberWorkerLog(text)
-      },
-      printErr: (text: string) => {
-        rememberWorkerLog(text)
-      }
-    })
-  }
-  return openscadPromise
+  // Create a fresh instance per render. Reusing a warm instance has shown
+  // opaque numeric failures on follow-up renders in this stack.
+  return createOpenSCAD({
+    print: (text: string) => {
+      rememberWorkerLog(text)
+    },
+    printErr: (text: string) => {
+      rememberWorkerLog(text)
+    }
+  })
 }
 
 function postResponse(response: RenderResponse): void {
@@ -114,27 +121,55 @@ self.onmessage = async (event: MessageEvent<RenderRequest>) => {
 
   try {
     resetWorkerLogs()
+    const initStart = performance.now()
     const openscad = await getOpenScad()
+    const initMs = performance.now() - initStart
+    const renderStart = performance.now()
     const stlText = await openscad.renderToStl(request.code)
+    const renderMs = performance.now() - renderStart
     if (!stlText?.trim()) {
       postResponse({
         id: request.id,
         success: false,
-        error: 'OpenSCAD rendered no STL output.'
+        error: 'OpenSCAD rendered no STL output.',
+        details: {
+          initMs,
+          renderMs,
+          failureClass: 'unknown',
+          workerLogTail: getRecentWorkerError(),
+          failureStage: 'wasm_exec'
+        }
       })
       return
     }
 
+    const encodeStart = performance.now()
+    const stlBase64 = toBase64(stlText)
+    const encodeMs = performance.now() - encodeStart
+
     postResponse({
       id: request.id,
       success: true,
-      stlBase64: toBase64(stlText)
+      stlBase64,
+      details: {
+        initMs,
+        renderMs,
+        encodeMs,
+        stlBytes: new TextEncoder().encode(stlText).byteLength,
+        workerLogTail: getRecentWorkerError()
+      }
     })
   } catch (error) {
+    const errorMessage = formatRenderError(error)
     postResponse({
       id: request.id,
       success: false,
-      error: formatRenderError(error)
+      error: errorMessage,
+      details: {
+        failureClass: classifyRenderFailure(errorMessage),
+        workerLogTail: getRecentWorkerError(),
+        failureStage: getRecentWorkerError() ? 'wasm_exec' : 'wasm_init'
+      }
     })
   }
 }

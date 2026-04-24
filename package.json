@@ -30,6 +30,7 @@
     "test:e2e:ui": "playwright test --ui",
     "test:e2e:headed": "playwright test --headed",
     "test:e2e:setup": "playwright install chromium",
+    "test:openscad-wasm-repros": "node scripts/run-openscad-wasm-repros.mjs",
     "lint": "eslint src electron",
     "lint:fix": "eslint src electron --fix",
     "docs:dev": "vitepress dev docs",

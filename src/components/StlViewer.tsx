@@ -122,7 +122,7 @@ const StlViewer = forwardRef<StlViewerHandle, StlViewerProps>(({ stlBase64 }, re
     }
   }, [stlBase64])
 
-  return <div ref={containerRef} className="w-full h-full" />
+  return <div ref={containerRef} data-testid="stl-viewer" className="w-full h-full" />
 })
 
 /**
