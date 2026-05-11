@@ -246,6 +246,18 @@ export interface ElectronAPI {
     models?: Array<{ name: string; size: number; modified: string }>
     error?: string
   }>
+  getCustomModels: (endpoint?: string) => Promise<{
+    success: boolean
+    models?: Array<{ id: string; name: string }>
+    error?: string
+  }>
+  checkCustomConnection: (endpoint?: string) => Promise<{
+    success: boolean
+    message?: string
+    error?: string
+    endpoint?: string
+    supportsResponses?: boolean
+  }>
   onMenuEvent: (channel: string, callback: () => void) => void
   removeMenuListener: (channel: string) => void
 }

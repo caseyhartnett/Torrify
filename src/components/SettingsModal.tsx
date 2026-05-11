@@ -13,6 +13,7 @@ import {
   AISettings,
   KnowledgeSettings,
   useOllamaModels,
+  useCustomModels,
   type Settings,
   type SettingsTab
 } from './settings'
@@ -72,6 +73,15 @@ function SettingsModal({ isOpen, onClose, initialTab }: SettingsModalProps) {
     isOpen,
     setSettings
   )
+  const {
+    customModels,
+    isLoadingCustomModels,
+    customModelsError,
+    customConnectionStatus,
+    isCheckingCustomConnection,
+    loadCustomModels,
+    checkCustomConnection
+  } = useCustomModels()
 
   useEffect(() => {
     return () => {
@@ -317,7 +327,7 @@ function SettingsModal({ isOpen, onClose, initialTab }: SettingsModalProps) {
         llm: {
           ...settings.llm,
           provider,
-          model: DEFAULT_MODELS[provider],
+          model: provider === 'custom' ? settings.llm.model : DEFAULT_MODELS[provider],
           apiKey: requiresApiKey(provider) ? settings.llm.apiKey : '',
           gatewayLicenseKey: provider === 'gateway' ? (settings.llm.gatewayLicenseKey ?? '') : settings.llm.gatewayLicenseKey
         }
@@ -555,11 +565,18 @@ function SettingsModal({ isOpen, onClose, initialTab }: SettingsModalProps) {
               ollamaModels={ollamaModels}
               isLoadingOllamaModels={isLoadingOllamaModels}
               ollamaModelsError={ollamaModelsError}
+              customModels={customModels}
+              isLoadingCustomModels={isLoadingCustomModels}
+              customModelsError={customModelsError}
+              customConnectionStatus={customConnectionStatus}
+              isCheckingCustomConnection={isCheckingCustomConnection}
               onLLMChange={handleLLMChange}
               onAnalyticsEnabledChange={handleAnalyticsEnabledChange}
               onProviderChange={handleProviderChange}
               onAccessModeChange={handleAccessModeChange}
               onLoadOllamaModels={loadOllamaModels}
+              onLoadCustomModels={loadCustomModels}
+              onCheckCustomConnection={checkCustomConnection}
             />
           )}
           {activeTab === 'knowledge' && (

@@ -136,6 +136,15 @@ When generating updated code based on the user's current code:
 1. Preserve existing parameter values unless the user explicitly asks to change them or a change is required to satisfy the request.
 2. If you change any parameter values, explain which ones changed and why in a separate <assistant>...</assistant> block.
 
+## Current Editor State Is Authoritative
+Before every user request, Torrify may provide an "AUTHORITATIVE CURRENT EDITOR STATE" code snapshot.
+1. Treat that snapshot as the only source of truth for the current object.
+2. Ignore older code from chat history when it conflicts with the current editor snapshot.
+3. When the user asks for a change, modify the current snapshot, not a previous answer.
+4. Preserve user edits that already exist in the current snapshot unless the new request explicitly asks to change them.
+5. If the snapshot already contains a model/object, use that existing model as the base and apply the requested change to it. Do NOT create a different replacement object from scratch unless the user explicitly asks to start over, replace everything, or create a new separate object.
+6. Keep existing module/function names, parameters, measurements, coordinate systems, and object structure whenever possible. Add or edit only the parts needed for the requested change.
+
 ## Quality Checklist
 Ensure your code has:
 - [ ] Configuration block at the top with all parameters
@@ -519,6 +528,15 @@ When generating updated code based on the user's current code:
 1. Preserve existing parameter values unless the user explicitly asks to change them or a change is required to satisfy the request.
 2. If you change any parameter values, explain which ones changed and why in a separate <assistant>...</assistant> block.
 
+## Current Editor State Is Authoritative
+Before every user request, Torrify may provide an "AUTHORITATIVE CURRENT EDITOR STATE" code snapshot.
+1. Treat that snapshot as the only source of truth for the current object.
+2. Ignore older code from chat history when it conflicts with the current editor snapshot.
+3. When the user asks for a change, modify the current snapshot, not a previous answer.
+4. Preserve user edits that already exist in the current snapshot unless the new request explicitly asks to change them.
+5. If the snapshot already contains a model/object, use that existing model as the base and apply the requested change to it. Do NOT create a different replacement object from scratch unless the user explicitly asks to start over, replace everything, or create a new separate object.
+6. Keep existing variable names, builder context structure, result assignment, parameters, measurements, coordinate systems, and object structure whenever possible. Add or edit only the parts needed for the requested change.
+
 ---
 
 ## Complete Example (Builder Mode)
@@ -600,7 +618,7 @@ export function getSystemPrompt(cadBackend: CADBackend, currentCode?: string, ap
   
   // Include current code if available
   if (currentCode) {
-    prompt += `\n\nCurrent code in editor:\n\`\`\`${codeType}\n${currentCode}\n\`\`\``
+    prompt += `\n\nAUTHORITATIVE CURRENT EDITOR STATE:\nThe code below is the current object/source in the editor. It overrides any older code in chat history. If it already defines a model/object, you MUST use that existing object as the base for the next change instead of creating a replacement object from scratch. Base all code changes on this snapshot and preserve existing user edits unless the user explicitly asks to change them, start over, or create a separate new object.\n\`\`\`${codeType}\n${currentCode}\n\`\`\``
   }
   
   return prompt
@@ -636,7 +654,7 @@ export function getSystemPromptBlocks(
 
   let dynamicBlock: string | null = null
   if (currentCode) {
-    dynamicBlock = `\n\nCurrent code in editor:\n\`\`\`${codeType}\n${currentCode}\n\`\`\``
+    dynamicBlock = `\n\nAUTHORITATIVE CURRENT EDITOR STATE:\nThe code below is the current object/source in the editor. It overrides any older code in chat history. If it already defines a model/object, you MUST use that existing object as the base for the next change instead of creating a replacement object from scratch. Base all code changes on this snapshot and preserve existing user edits unless the user explicitly asks to change them, start over, or create a separate new object.\n\`\`\`${codeType}\n${currentCode}\n\`\`\``
   }
 
   return { staticBlocks, dynamicBlock }

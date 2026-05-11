@@ -4,6 +4,7 @@ import type { CADBackend } from '../services/cad'
 import { trackAnalyticsEvent } from '../services/analytics'
 import { getRuntimeCapabilities } from '../platform/capabilities'
 import { logger } from '../utils/logger'
+import ChatMarkdown from './ChatMarkdown'
 
 /**
  * Represents a single message in the chat conversation.
@@ -69,6 +70,75 @@ interface ExtractedCode {
   code: string | null
   /** The remaining text content of the message (the explanation) */
   message: string
+}
+
+const CODE_LOCATOR_PROMPT = 'Wheres is the code'
+
+interface SendToLlmOptions {
+  readonly requireCodeResponse?: boolean
+}
+
+const getCodeTagName = (backend: CADBackend): 'openscad' | 'python' => (
+  backend === 'build123d' ? 'python' : 'openscad'
+)
+
+const getCodeLanguage = (backend: CADBackend): 'openscad' | 'python' => (
+  backend === 'build123d' ? 'python' : 'openscad'
+)
+
+const buildCodeLocatorRequest = (backend: CADBackend): string => {
+  const tagName = getCodeTagName(backend)
+  const languageName = backend === 'build123d' ? 'Python/build123d' : 'OpenSCAD'
+
+  return [
+    `Return the complete current ${languageName} code now.`,
+    `Output ONLY one <${tagName}>...</${tagName}> block.`,
+    'Do not apologize.',
+    'Do not explain.',
+    'Do not say the code is below unless the full code is actually inside the tag block.',
+    'Use the AUTHORITATIVE CURRENT EDITOR STATE as the source if no newer complete code exists in this conversation.'
+  ].join('\n')
+}
+
+const buildCodeOnlyRetryRequest = (backend: CADBackend): string => {
+  const tagName = getCodeTagName(backend)
+  const languageName = backend === 'build123d' ? 'Python/build123d' : 'OpenSCAD'
+
+  return [
+    `Your previous response did not include an extractable ${languageName} code block.`,
+    `Retry now with ONLY the complete, runnable code inside <${tagName}>...</${tagName}>.`,
+    'No markdown.',
+    'No prose.',
+    'No apology.',
+    'No explanation.'
+  ].join('\n')
+}
+
+const getMissingCodeMessage = (backend: CADBackend): string => {
+  const tagName = getCodeTagName(backend)
+  return `The AI did not return an extractable <${tagName}>...</${tagName}> code block. Try a stronger model or ask again with "return only the full code block".`
+}
+
+const buildAuthoritativeCodeContextMessage = (code: string | undefined, backend: CADBackend): LLMMessage | null => {
+  const trimmedCode = code?.trim()
+  if (!trimmedCode) {
+    return null
+  }
+
+  const language = getCodeLanguage(backend)
+  return {
+    role: 'system',
+    content: [
+      'AUTHORITATIVE CURRENT EDITOR STATE:',
+      'The code below is the current object/source in the editor at the moment of this request.',
+      'Treat it as the only source of truth for code changes.',
+      'Ignore older code from chat history if it conflicts with this snapshot.',
+      'When returning updated code, preserve all existing user changes unless the user explicitly asks to change them.',
+      `\`\`\`${language}`,
+      trimmedCode,
+      '```'
+    ].join('\n')
+  }
 }
 
 /**
@@ -189,10 +259,12 @@ function ChatPanel({
   const fileInputRef = useRef<HTMLInputElement>(null)
   const streamControllerRef = useRef<StreamController | null>(null)
   const streamingMessageIdRef = useRef<number | null>(null)
+  const currentCodeRef = useRef(currentCode)
   const onApplyCodeRef = useRef(onApplyCode)
   const onDiagnosisSentRef = useRef(onDiagnosisSent)
   const diagnosisInFlightRef = useRef(false)
-  const sendToLlmRef = useRef<(userInput: string, imageDataUrls?: string[]) => Promise<void>>(async () => {})
+  const sendToLlmRef = useRef<(userInput: string, imageDataUrls?: string[], options?: SendToLlmOptions) => Promise<void>>(async () => {})
+  currentCodeRef.current = currentCode
   onApplyCodeRef.current = onApplyCode
   onDiagnosisSentRef.current = onDiagnosisSent
 
@@ -206,15 +278,11 @@ function ChatPanel({
     return () => window.clearTimeout(timeoutId)
   }, [])
 
-  // Handle file selection for image import
-  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = e.target.files
-    if (!files || files.length === 0) return
-
+  const stageImageFiles = useCallback((files: Iterable<File>, source: 'chat' | 'paste') => {
     const imageFiles = Array.from(files).filter((file) => file.type.startsWith('image/'))
     if (imageFiles.length > 0) {
       trackAnalyticsEvent('image_attachment_added', {
-        source: 'chat',
+        source,
         count: imageFiles.length
       })
     }
@@ -227,11 +295,40 @@ function ChatPanel({
       }
       reader.readAsDataURL(file)
     })
+  }, [])
+
+  // Handle file selection for image import
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files
+    if (!files || files.length === 0) return
+
+    stageImageFiles(files, 'chat')
 
     // Reset file input so the same file can be selected again
     if (fileInputRef.current) {
       fileInputRef.current.value = ''
     }
+  }
+
+  // Stage pasted clipboard images using the same path as file attachments.
+  const handlePaste = (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
+    const pastedFiles: File[] = []
+
+    for (const item of Array.from(e.clipboardData.items)) {
+      if (item.kind === 'file' && item.type.startsWith('image/')) {
+        const file = item.getAsFile()
+        if (file) {
+          pastedFiles.push(file)
+        }
+      }
+    }
+
+    if (pastedFiles.length === 0) {
+      return
+    }
+
+    e.preventDefault()
+    stageImageFiles(pastedFiles, 'paste')
   }
 
   // Remove a staged image
@@ -414,7 +511,7 @@ ${pendingDiagnosis.code}
    * @param userInput - The text message from the user
    * @param imageDataUrls - Optional array of images to include in the multi-modal prompt
    */
-  const sendToLlm = useCallback(async (userInput: string, imageDataUrls?: string[]) => {
+  const sendToLlm = useCallback(async (userInput: string, imageDataUrls?: string[], options?: SendToLlmOptions) => {
     try {
       const settings = await window.electronAPI.getSettings()
       
@@ -439,6 +536,8 @@ ${pendingDiagnosis.code}
 
       const llmService = createLLMService(settings.llm)
       const requestContext = await getApiContextForRequest()
+      const requestCodeSnapshot = currentCode ?? ''
+      const requireCodeResponse = options?.requireCodeResponse === true
 
       // Transform chat history into LLM-compatible message format
       const llmMessages: LLMMessage[] = messages
@@ -448,11 +547,38 @@ ${pendingDiagnosis.code}
           content: m.text
         }))
 
+      const codeContextMessage = buildAuthoritativeCodeContextMessage(currentCode, cadBackend)
+      if (codeContextMessage) {
+        llmMessages.push(codeContextMessage)
+      }
+
       llmMessages.push({
         role: 'user',
-        content: userInput,
+        content: requireCodeResponse ? buildCodeLocatorRequest(cadBackend) : userInput,
         imageDataUrls
       })
+
+      const retryForCodeOnlyResponse = async (): Promise<ExtractedCode | null> => {
+        if (!requireCodeResponse) {
+          return null
+        }
+
+        logger.warn('[ChatPanel] AI response had no extractable code; retrying with code-only instruction')
+        const retryMessages: LLMMessage[] = [
+          ...llmMessages,
+          {
+            role: 'user',
+            content: buildCodeOnlyRetryRequest(cadBackend)
+          }
+        ]
+        const retryResponse = await llmService.sendMessage(
+          retryMessages,
+          currentCode,
+          cadBackend,
+          requestContext
+        )
+        return extractCodeFromResponse(retryResponse.content, cadBackend)
+      }
 
       if (llmService.supportsStreaming() && llmService.streamMessage) {
         const streamingMessageId = Date.now() + 1
@@ -479,19 +605,26 @@ ${pendingDiagnosis.code}
                 accumulatedLength: accumulated?.length ?? 0
               })
 
-              const extracted = extractCodeFromResponse(accumulated, cadBackend)
+              let extracted = extractCodeFromResponse(accumulated, cadBackend)
+              if (!extracted.code && requireCodeResponse) {
+                extracted = await retryForCodeOnlyResponse() ?? extracted
+              }
               if (extracted.code) {
-                logger.debug('[ChatPanel] Applying extracted code to editor')
-                const rendered = await onApplyCodeRef.current?.(extracted.code)
-                if (rendered === true) {
-                  setCodeAppliedAt(Date.now())
+                if ((currentCodeRef.current ?? '') === requestCodeSnapshot) {
+                  logger.debug('[ChatPanel] Applying extracted code to editor')
+                  const rendered = await onApplyCodeRef.current?.(extracted.code)
+                  if (rendered === true) {
+                    setCodeAppliedAt(Date.now())
+                  }
+                } else {
+                  logger.warn('[ChatPanel] Skipped applying AI code because editor changed during request')
                 }
               }
 
               // Finalize the streaming message with cleaned text (explanation only)
               setMessages(prev => prev.map(m => 
                 m.id === streamingMessageId 
-                  ? { ...m, text: extracted.message || accumulated, isStreaming: false }
+                  ? { ...m, text: extracted.message || (extracted.code ? 'Code returned and applied.' : getMissingCodeMessage(cadBackend)), isStreaming: false }
                   : m
               ))
               
@@ -523,18 +656,26 @@ ${pendingDiagnosis.code}
           requestContext
         )
 
-        const extracted = extractCodeFromResponse(response.content, cadBackend)
+        let extracted = extractCodeFromResponse(response.content, cadBackend)
+        if (!extracted.code && requireCodeResponse) {
+          extracted = await retryForCodeOnlyResponse() ?? extracted
+        }
         if (extracted.code) {
-          const rendered = await onApplyCodeRef.current?.(extracted.code)
-          if (rendered === true) {
-            setCodeAppliedAt(Date.now())
+          if ((currentCodeRef.current ?? '') === requestCodeSnapshot) {
+            const rendered = await onApplyCodeRef.current?.(extracted.code)
+            if (rendered === true) {
+              setCodeAppliedAt(Date.now())
+            }
+          } else {
+            logger.warn('[ChatPanel] Skipped applying AI code because editor changed during request')
           }
         }
 
-        if (extracted.message) {
+        const botText = extracted.message || (requireCodeResponse && !extracted.code ? getMissingCodeMessage(cadBackend) : '')
+        if (botText) {
           const botMessage: Message = {
             id: Date.now() + 1,
-            text: extracted.message,
+            text: botText,
             sender: 'bot',
             timestamp: new Date()
           }
@@ -601,6 +742,29 @@ ${pendingDiagnosis.code}
     setStagedImages([])
     
     await sendToLlm(userInput, hasImages ? allImages : undefined)
+  }
+
+  const handleCodeLocatorSend = async () => {
+    if (isLoading) return
+
+    setIsLoading(true)
+
+    trackAnalyticsEvent('chat_message_sent', {
+      source: 'code_locator',
+      backend: cadBackend,
+      hasImages: false,
+      imageCount: 0
+    })
+
+    const userMessage: Message = {
+      id: Date.now(),
+      text: CODE_LOCATOR_PROMPT,
+      sender: 'user',
+      timestamp: new Date()
+    }
+
+    setMessages(prev => [...prev, userMessage])
+    await sendToLlm(CODE_LOCATOR_PROMPT, undefined, { requireCodeResponse: true })
   }
 
   /**
@@ -692,12 +856,21 @@ ${pendingDiagnosis.code}
                   ))}
                 </div>
               )}
-              <p className="text-sm whitespace-pre-wrap">
-                {message.text}
-                {message.isStreaming && (
-                  <span className="inline-block w-2 h-4 ml-1 bg-blue-400 animate-pulse" />
-                )}
-              </p>
+              {message.sender === 'user' ? (
+                <p className="text-sm whitespace-pre-wrap">
+                  {message.text}
+                  {message.isStreaming && (
+                    <span className="inline-block w-2 h-4 ml-1 bg-blue-400 animate-pulse" />
+                  )}
+                </p>
+              ) : (
+                <div>
+                  <ChatMarkdown text={message.text} />
+                  {message.isStreaming && (
+                    <span className="inline-block w-2 h-4 ml-1 bg-blue-400 animate-pulse" />
+                  )}
+                </div>
+              )}
               <p className="text-xs opacity-60 mt-1">
                 {message.timestamp.toLocaleTimeString()}
               </p>
@@ -757,7 +930,7 @@ ${pendingDiagnosis.code}
           className="hidden"
         />
         
-        <div className="flex justify-end mb-2 px-1">
+        <div className="flex justify-end items-center gap-2 mb-2 px-1">
           <label className="flex items-center gap-2 text-xs text-gray-400 cursor-pointer hover:text-gray-300 select-none">
             <input
               type="checkbox"
@@ -767,6 +940,18 @@ ${pendingDiagnosis.code}
             />
             <span>Include API Context {cadBackend === 'build123d' ? '(~27KB)' : '(~2.5KB)'}</span>
           </label>
+          <button
+            type="button"
+            onClick={handleCodeLocatorSend}
+            disabled={isLoading}
+            className="p-1 rounded text-gray-400 hover:text-gray-200 hover:bg-[#3e3e42] disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            title="Ask AI where the code is"
+            aria-label="Ask AI where the code is"
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v6h6M20 20v-6h-6M20 9A8 8 0 006.3 4.7L4 10m16 4l-2.3 5.3A8 8 0 014 15" />
+            </svg>
+          </button>
         </div>
         
         <div className="flex gap-2">
@@ -784,8 +969,9 @@ ${pendingDiagnosis.code}
           <textarea
             value={input}
             onChange={(e) => setInput(e.target.value)}
+            onPaste={handlePaste}
             onKeyPress={handleKeyPress}
-            placeholder="Type a message..."
+            placeholder="Type a message or paste an image..."
             className="flex-1 bg-[#2d2d30] text-white px-3 py-2 rounded border border-[#3e3e42] focus:outline-none focus:border-blue-500 resize-none"
             rows={2}
             aria-label="Chat message"

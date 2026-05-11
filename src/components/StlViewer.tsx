@@ -60,11 +60,21 @@ const StlViewer = forwardRef<StlViewerHandle, StlViewerProps>(({ stlBase64 }, re
     const geometry = loader.parse(arrayBuffer)
     geometry.computeVertexNormals()
 
-    const material = new THREE.MeshStandardMaterial({
-      color: 0x9aa4b2,
-      metalness: 0.1,
-      roughness: 0.7,
-    })
+    const material = new THREE.MeshStandardMaterial(
+      geometry.hasColors
+        ? {
+            opacity: geometry.alpha ?? 1,
+            transparent: (geometry.alpha ?? 1) < 1,
+            vertexColors: true,
+            metalness: 0.1,
+            roughness: 0.7,
+          }
+        : {
+            color: 0x9aa4b2,
+            metalness: 0.1,
+            roughness: 0.7,
+          }
+    )
     const mesh = new THREE.Mesh(geometry, material)
     scene.add(mesh)
 

@@ -4,6 +4,7 @@ import userEvent from '@testing-library/user-event'
 import { AISettings } from '../AISettings'
 import type { Settings } from '../types'
 import type { OllamaModel } from '../hooks/useOllamaModels'
+import type { CustomModel } from '../hooks/useCustomModels'
 
 const defaultSettings: Settings = {
   cadBackend: 'openscad',
@@ -25,11 +26,18 @@ const defaultProps = {
   ollamaModels: [] as OllamaModel[],
   isLoadingOllamaModels: false,
   ollamaModelsError: null,
+  customModels: [] as CustomModel[],
+  isLoadingCustomModels: false,
+  customModelsError: null,
+  customConnectionStatus: null,
+  isCheckingCustomConnection: false,
   onLLMChange: vi.fn(),
   onAnalyticsEnabledChange: vi.fn(),
   onProviderChange: vi.fn(),
   onAccessModeChange: vi.fn(),
-  onLoadOllamaModels: vi.fn().mockResolvedValue([])
+  onLoadOllamaModels: vi.fn().mockResolvedValue([]),
+  onLoadCustomModels: vi.fn().mockResolvedValue([]),
+  onCheckCustomConnection: vi.fn().mockResolvedValue({ success: true, message: 'ok' })
 }
 
 describe('AISettings', () => {
@@ -150,5 +158,30 @@ describe('AISettings', () => {
     expect(screen.getByText(/Anonymous Product Analytics/)).toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: /toggle anonymous product analytics/i }))
     expect(onAnalyticsEnabledChange).toHaveBeenCalledWith(false)
+  })
+
+  it('shows custom endpoint actions and triggers callbacks', async () => {
+    const user = userEvent.setup()
+    const onLoadCustomModels = vi.fn().mockResolvedValue([])
+    const onCheckCustomConnection = vi.fn().mockResolvedValue({ success: true, message: 'Connected successfully' })
+    const settings: Settings = {
+      ...defaultSettings,
+      llm: { ...defaultSettings.llm, provider: 'custom', model: 'local-model' }
+    }
+
+    render(
+      <AISettings
+        {...defaultProps}
+        settings={settings}
+        onLoadCustomModels={onLoadCustomModels}
+        onCheckCustomConnection={onCheckCustomConnection}
+      />
+    )
+
+    await user.click(screen.getByRole('button', { name: 'Load Models' }))
+    await user.click(screen.getByRole('button', { name: 'Try Connection' }))
+
+    expect(onLoadCustomModels).toHaveBeenCalledWith(undefined)
+    expect(onCheckCustomConnection).toHaveBeenCalledWith(undefined)
   })
 })

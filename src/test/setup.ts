@@ -187,6 +187,16 @@ if (typeof global.window !== 'undefined') {
       { name: 'gpt-oss:20b', size: 13793441244, modified: '2026-01-25T12:03:39.1754186-05:00' }
     ]
   }),
+  getCustomModels: vi.fn().mockResolvedValue({
+    success: true,
+    models: [{ id: 'local-model', name: 'local-model' }]
+  }),
+  checkCustomConnection: vi.fn().mockResolvedValue({
+    success: true,
+    message: 'Connected successfully',
+    endpoint: 'http://127.0.0.1:1234/v1',
+    supportsResponses: false
+  }),
   
     onMenuEvent: vi.fn(),
     removeMenuListener: vi.fn(),

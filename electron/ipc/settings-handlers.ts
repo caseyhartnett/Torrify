@@ -46,6 +46,24 @@ function normalizeOllamaEndpoint(endpointInput: unknown): { ok: true; endpoint: 
   }
 }
 
+function normalizeCustomEndpoint(endpointInput: unknown): { ok: true; endpoint: string } | { ok: false; error: string } {
+  if (endpointInput === undefined || endpointInput === null || endpointInput === '') {
+    return { ok: true, endpoint: 'http://127.0.0.1:1234/v1' }
+  }
+  if (typeof endpointInput !== 'string' || endpointInput.length > 2048) {
+    return { ok: false, error: 'Invalid custom endpoint' }
+  }
+  try {
+    const url = new URL(endpointInput.trim())
+    if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+      return { ok: false, error: 'Invalid custom endpoint protocol' }
+    }
+    return { ok: true, endpoint: url.toString().replace(/\/+$/, '') }
+  } catch {
+    return { ok: false, error: 'Invalid custom endpoint' }
+  }
+}
+
 export function registerSettingsHandlers(): void {
   ipcMain.handle('get-settings', () => {
     return getCurrentSettings()
@@ -191,6 +209,89 @@ export function registerSettingsHandlers(): void {
         models: [],
         error: errorMessage
       }
+    }
+  })
+
+  ipcMain.handle('check-custom-connection', async (_event, endpointInput?: unknown) => {
+    try {
+      const endpointResult = normalizeCustomEndpoint(endpointInput)
+      if (!endpointResult.ok) {
+        return { success: false, error: endpointResult.error, supportsResponses: false }
+      }
+      const base = endpointResult.endpoint
+      const controller = new AbortController()
+      const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS)
+      let response: Response
+      try {
+        response = await fetch(`${base}/models`, { signal: controller.signal })
+      } finally {
+        clearTimeout(timeout)
+      }
+
+      if (response.ok) {
+        return {
+          success: true,
+          message: 'Connected successfully',
+          endpoint: base,
+          supportsResponses: false
+        }
+      }
+
+      const responsesProbe = await fetch(`${base}/responses`, {
+        method: 'OPTIONS'
+      })
+      return {
+        success: response.status === 404 ? responsesProbe.ok : false,
+        message:
+          response.status === 404
+            ? responsesProbe.ok
+              ? 'Connected (responses-compatible endpoint)'
+              : `Connected, but endpoint may be incompatible (status ${response.status})`
+            : `Connection failed: HTTP ${response.status}`,
+        endpoint: base,
+        supportsResponses: response.status === 404 ? responsesProbe.ok : false
+      }
+    } catch (error) {
+      logger.error('Failed to check custom endpoint connection', error)
+      const message = error instanceof Error ? error.message : 'Unknown error'
+      return { success: false, error: `Connection error: ${message}`, supportsResponses: false }
+    }
+  })
+
+  ipcMain.handle('get-custom-models', async (_event, endpointInput?: unknown) => {
+    try {
+      const endpointResult = normalizeCustomEndpoint(endpointInput)
+      if (!endpointResult.ok) {
+        return { success: false, models: [], error: endpointResult.error }
+      }
+      const base = endpointResult.endpoint
+      const controller = new AbortController()
+      const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS)
+      let response: Response
+      try {
+        response = await fetch(`${base}/models`, { signal: controller.signal })
+      } finally {
+        clearTimeout(timeout)
+      }
+      if (!response.ok) {
+        throw new Error(`Custom API returned ${response.status}`)
+      }
+      const data = await response.json()
+      const models = (Array.isArray(data?.data) ? data.data : [])
+        .map((item: unknown) => {
+          const record = item && typeof item === 'object' ? (item as Record<string, unknown>) : {}
+          const id = typeof record.id === 'string' ? record.id : ''
+          if (!id) {
+            return null
+          }
+          return { id, name: id }
+        })
+        .filter((item: { id: string; name: string } | null): item is { id: string; name: string } => item !== null)
+      return { success: true, models }
+    } catch (error) {
+      logger.error('Failed to fetch custom models', error)
+      const message = error instanceof Error ? error.message : 'Unknown error'
+      return { success: false, models: [], error: `Connection error: ${message}` }
     }
   })
 

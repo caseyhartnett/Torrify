@@ -5,6 +5,7 @@ import { MAX_OUTPUT_FILE_SIZE } from '../constants'
 export const MAX_CODE_SIZE = 1024 * 1024 // 1MB
 export const MAX_PATH_LENGTH = 1024 // 1KB
 export const MAX_SETTINGS_SIZE = 10 * 1024 // 10KB
+export const MAX_IMAGE_DATA_URL_SIZE = 5 * 1024 * 1024 // 5MB
 
 // Core schemas
 export const CodeSchema = z.string().max(MAX_CODE_SIZE)
@@ -63,10 +64,17 @@ export const GatewayRequestSchema = z.object({
 
 export const WindowTitleSchema = z.string().max(256)
 
+const ImageDataUrlSchema = z
+  .string()
+  .max(MAX_IMAGE_DATA_URL_SIZE)
+  .refine((value) => /^data:image\/[a-zA-Z0-9.+-]+;base64,/.test(value), {
+    message: 'Expected base64 image data URL'
+  })
+
 export const LLMMessageSchema = z.object({
   role: z.enum(['user', 'assistant', 'system']),
   content: z.string().max(MAX_CODE_SIZE),
-  imageDataUrls: z.array(z.string().max(MAX_PATH_LENGTH)).max(16).optional()
+  imageDataUrls: z.array(ImageDataUrlSchema).max(16).optional()
 })
 
 export const LLMRequestPayloadSchema = z.object({
