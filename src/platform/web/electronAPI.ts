@@ -1211,6 +1211,14 @@ function buildWebElectronAPI(): ElectronAPI {
       return { success: false, models: [], error: 'Ollama is not available in web runtime' }
     },
 
+    async getCustomModels() {
+      return { success: false, models: [], error: 'Custom local endpoints are not available in web runtime' }
+    },
+
+    async checkCustomConnection() {
+      return { success: false, error: 'Custom local endpoints are not available in web runtime', supportsResponses: false }
+    },
+
     onMenuEvent(channel: string, callback: () => void) {
       void channel
       void callback

@@ -1,6 +1,7 @@
 import { PROVIDER_NAMES, requiresApiKey } from '../../services/llm'
 import type { Settings } from './types'
 import type { OllamaModel } from './hooks/useOllamaModels'
+import type { CustomConnectionStatus, CustomModel } from './hooks/useCustomModels'
 
 const PRO_MODEL_GROUPS = [
   {
@@ -74,11 +75,18 @@ interface AISettingsProps {
   ollamaModels: OllamaModel[]
   isLoadingOllamaModels: boolean
   ollamaModelsError: string | null
+  customModels: CustomModel[]
+  isLoadingCustomModels: boolean
+  customModelsError: string | null
+  customConnectionStatus: CustomConnectionStatus | null
+  isCheckingCustomConnection: boolean
   onLLMChange: (field: keyof Settings['llm'], value: string | number | boolean) => void
   onAnalyticsEnabledChange: (enabled: boolean) => void
   onProviderChange: (provider: Settings['llm']['provider']) => void
   onAccessModeChange: (mode: 'byok' | 'pro') => void
   onLoadOllamaModels: (endpoint?: string) => Promise<OllamaModel[]>
+  onLoadCustomModels: (endpoint?: string) => Promise<CustomModel[]>
+  onCheckCustomConnection: (endpoint?: string) => Promise<CustomConnectionStatus>
 }
 
 export function AISettings({
@@ -88,11 +96,18 @@ export function AISettings({
   ollamaModels,
   isLoadingOllamaModels,
   ollamaModelsError,
+  customModels,
+  isLoadingCustomModels,
+  customModelsError,
+  customConnectionStatus,
+  isCheckingCustomConnection,
   onLLMChange,
   onAnalyticsEnabledChange,
   onProviderChange,
   onAccessModeChange,
-  onLoadOllamaModels
+  onLoadOllamaModels,
+  onLoadCustomModels,
+  onCheckCustomConnection
 }: AISettingsProps) {
   return (
     <div
@@ -305,6 +320,23 @@ export function AISettings({
               {ollamaModels.length} model{ollamaModels.length !== 1 ? 's' : ''} available
             </p>
           </>
+        ) : settings.llm.provider === 'custom' && customModels.length > 0 ? (
+          <>
+            <select
+              value={settings.llm.model}
+              onChange={(e) => onLLMChange('model', e.target.value)}
+              disabled={!settings.llm.enabled || isLoadingCustomModels}
+              className="w-full bg-[#1e1e1e] text-white px-3 py-2 rounded border border-[#3e3e42] focus:outline-none focus:border-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {customModels.map((model) => (
+                <option key={model.id} value={model.id}>
+                  {model.name}
+                </option>
+              ))}
+            </select>
+            {isLoadingCustomModels && <p className="text-xs text-gray-500 mt-1">Loading models...</p>}
+            {customModelsError && <p className="text-xs text-yellow-400 mt-1">⚠️ {customModelsError}</p>}
+          </>
         ) : (
           <>
             <input
@@ -356,6 +388,33 @@ export function AISettings({
               {settings.llm.provider === 'custom' && 'Enter your custom model identifier'}
               {settings.llm.provider === 'ollama' && ollamaModels.length === 0 && 'Examples: gpt-oss:20b, llama2, mistral'}
             </p>
+            {settings.llm.provider === 'custom' && (
+              <div className="mt-2 flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => onLoadCustomModels(settings.llm.customEndpoint)}
+                  disabled={isLoadingCustomModels || !settings.llm.enabled}
+                  className="text-xs px-2 py-1 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-600 disabled:cursor-not-allowed text-white rounded"
+                >
+                  {isLoadingCustomModels ? 'Loading...' : 'Load Models'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onCheckCustomConnection(settings.llm.customEndpoint)}
+                  disabled={isCheckingCustomConnection || !settings.llm.enabled}
+                  className="text-xs px-2 py-1 bg-[#3e3e42] hover:bg-[#4e4e52] disabled:bg-gray-600 disabled:cursor-not-allowed text-white rounded"
+                >
+                  {isCheckingCustomConnection ? 'Checking...' : 'Try Connection'}
+                </button>
+              </div>
+            )}
+            {settings.llm.provider === 'custom' && customConnectionStatus && (
+              <p className={`text-xs mt-1 ${customConnectionStatus.success ? 'text-green-400' : 'text-yellow-400'}`}>
+                {customConnectionStatus.success
+                  ? customConnectionStatus.message || 'Connected successfully'
+                  : customConnectionStatus.error || 'Connection failed'}
+              </p>
+            )}
           </>
         )}
       </div>

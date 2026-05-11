@@ -47,7 +47,7 @@ declare module 'three' {
     shadow: DirectionalLightShadow
   }
   export class MeshStandardMaterial {
-    constructor(params?: { color?: number | string; metalness?: number; roughness?: number })
+    constructor(params?: { color?: number | string; metalness?: number; roughness?: number; opacity?: number; transparent?: boolean; vertexColors?: boolean })
     dispose(): void
   }
   export class Mesh extends Object3D {
@@ -70,6 +70,8 @@ declare module 'three' {
   export class BufferGeometry {
     computeVertexNormals(): void
     dispose(): void
+    hasColors?: boolean
+    alpha?: number
   }
   export class Float32BufferAttribute {}
   export class BufferAttribute {}

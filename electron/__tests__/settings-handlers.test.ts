@@ -179,4 +179,53 @@ describe('settings-handlers', () => {
       )
     })
   })
+
+  describe('get-custom-models', () => {
+    it('fetches model list from custom endpoint', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          data: [{ id: 'model-a' }, { id: 'model-b' }]
+        })
+      })
+
+      const result = await (handlers['get-custom-models'] as (...a: unknown[]) => Promise<unknown>)(
+        null,
+        'http://127.0.0.1:1234/v1'
+      )
+
+      expect(mockFetch).toHaveBeenCalledWith(
+        'http://127.0.0.1:1234/v1/models',
+        expect.objectContaining({ signal: expect.any(AbortSignal) })
+      )
+      expect(result).toEqual({
+        success: true,
+        models: [
+          { id: 'model-a', name: 'model-a' },
+          { id: 'model-b', name: 'model-b' }
+        ]
+      })
+    })
+  })
+
+  describe('check-custom-connection', () => {
+    it('returns success when /models is reachable', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        status: 200
+      })
+
+      const result = await (handlers['check-custom-connection'] as (...a: unknown[]) => Promise<unknown>)(
+        null,
+        'http://127.0.0.1:1234/v1'
+      )
+
+      expect(result).toEqual({
+        success: true,
+        message: 'Connected successfully',
+        endpoint: 'http://127.0.0.1:1234/v1',
+        supportsResponses: false
+      })
+    })
+  })
 })

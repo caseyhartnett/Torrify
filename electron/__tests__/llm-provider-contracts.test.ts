@@ -4,6 +4,7 @@ import { GeminiService } from '../llm/GeminiService'
 import { OllamaService } from '../llm/OllamaService'
 import { OpenAIService } from '../llm/OpenAIService'
 import { OpenRouterService } from '../llm/OpenRouterService'
+import { CustomService } from '../llm/CustomService'
 import type { LLMConfig, LLMMessage } from '../llm/types'
 
 const { gemini } = vi.hoisted(() => ({
@@ -243,5 +244,81 @@ describe('LLM provider contracts', () => {
       ])
     )
     expect(result.content).toBe('gemini-ok')
+  })
+
+  it('CustomService uses OpenAI-compatible endpoint with optional auth', async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse({
+        choices: [{ message: { content: 'custom-ok' } }],
+        usage: { prompt_tokens: 2, completion_tokens: 3, total_tokens: 5 }
+      })
+    )
+
+    const service = new CustomService(
+      makeConfig('custom', { customEndpoint: 'http://127.0.0.1:1234/v1', apiKey: '' })
+    )
+    const result = await service.sendMessage(baseMessages)
+
+    const [endpoint, options] = fetchMock.mock.calls[0] as [string, RequestInit]
+    expect(endpoint).toBe('http://127.0.0.1:1234/v1/chat/completions')
+    expect(options.headers).toEqual(
+      expect.objectContaining({
+        'Content-Type': 'application/json'
+      })
+    )
+    expect((options.headers as Record<string, string>).Authorization).toBeUndefined()
+    expect(result.content).toBe('custom-ok')
+  })
+
+  it('CustomService maps image messages to Responses API input parts', async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse({
+        output_text: 'vision-ok',
+        usage: { input_tokens: 2, output_tokens: 3, total_tokens: 5 }
+      })
+    )
+
+    const service = new CustomService(
+      makeConfig('custom', { customEndpoint: 'http://127.0.0.1:1234/v1/responses', apiKey: '' })
+    )
+    const result = await service.sendMessage([
+      {
+        role: 'user',
+        content: 'Analyze this render.',
+        imageDataUrls: ['data:image/png;base64,AAA']
+      }
+    ])
+
+    const [endpoint, options] = fetchMock.mock.calls[0] as [string, RequestInit]
+    expect(endpoint).toBe('http://127.0.0.1:1234/v1/responses')
+    const body = JSON.parse(String(options.body))
+    expect(body.instructions).toEqual(expect.any(String))
+    expect(body.input).toEqual([
+      {
+        role: 'user',
+        content: [
+          { type: 'input_text', text: 'Analyze this render.' },
+          { type: 'input_image', image_url: 'data:image/png;base64,AAA' }
+        ]
+      }
+    ])
+    expect(result.content).toBe('vision-ok')
+  })
+
+  it('CustomService accepts a full chat completions route without duplicating the path', async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse({
+        choices: [{ message: { content: 'route-ok' } }]
+      })
+    )
+
+    const service = new CustomService(
+      makeConfig('custom', { customEndpoint: 'http://127.0.0.1:1234/v1/chat/completions', apiKey: '' })
+    )
+    const result = await service.sendMessage(baseMessages)
+
+    const [endpoint] = fetchMock.mock.calls[0] as [string, RequestInit]
+    expect(endpoint).toBe('http://127.0.0.1:1234/v1/chat/completions')
+    expect(result.content).toBe('route-ok')
   })
 })

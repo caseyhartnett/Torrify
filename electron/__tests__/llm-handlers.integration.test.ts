@@ -145,6 +145,52 @@ describe('llm-handlers integration', () => {
     )
   })
 
+  it('accepts screenshot data URLs in streaming payloads', async () => {
+    const imageDataUrl = `data:image/png;base64,${'A'.repeat(4096)}`
+    const streamMessage = vi.fn().mockImplementation(async (_messages, onChunk) => {
+      onChunk('', '', true)
+      return { abort: vi.fn() }
+    })
+    state.mockCreateLLMService.mockReturnValue({
+      sendMessage: vi.fn(),
+      streamMessage,
+      supportsStreaming: () => true,
+      getProviderName: () => 'Mock'
+    } as unknown as LLMService)
+
+    const response = await (state.handlers['llm-stream-message'] as (...args: unknown[]) => Promise<{ streamId: string | null; error?: string }>)(
+      null,
+      {
+        messages: [
+          {
+            role: 'user',
+            content: 'Analyze this render.',
+            imageDataUrls: [imageDataUrl]
+          }
+        ]
+      }
+    )
+
+    expect(response.error).toBeUndefined()
+    expect(response.streamId).toMatch(/^llm-stream-/)
+
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    expect(streamMessage).toHaveBeenCalledWith(
+      [
+        {
+          role: 'user',
+          content: 'Analyze this render.',
+          imageDataUrls: [imageDataUrl]
+        }
+      ],
+      expect.any(Function),
+      undefined,
+      'openscad',
+      undefined
+    )
+  })
+
   it('wires llm-stream-abort to active controller', async () => {
     const abort = vi.fn()
     const streamMessage = vi.fn().mockResolvedValue({ abort })

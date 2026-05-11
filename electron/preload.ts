@@ -129,6 +129,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
   /** Retrieves available models from a local Ollama instance */
   getOllamaModels: (endpoint?: string) => ipcRenderer.invoke('get-ollama-models', endpoint),
 
+  /** Retrieves available models from an OpenAI-compatible custom endpoint */
+  getCustomModels: (endpoint?: string) => ipcRenderer.invoke('get-custom-models', endpoint),
+
+  /** Checks connectivity and basic compatibility for a custom endpoint */
+  checkCustomConnection: (endpoint?: string) => ipcRenderer.invoke('check-custom-connection', endpoint),
+
   /** Registers a listener for menu-driven application events */
   onMenuEvent: (channel: string, callback: () => void) => {
     const validChannels = [
