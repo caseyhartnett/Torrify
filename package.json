@@ -168,7 +168,7 @@
     "concurrently": "^8.2.2",
     "cross-env": "^10.1.0",
     "electron": "^39.8.5",
-    "electron-builder": "^26.7.0",
+    "electron-builder": "^26.15.3",
     "eslint": "^9.39.2",
     "eslint-plugin-react-hooks": "^5.0.0",
     "globals": "^15.0.0",
@@ -189,7 +189,7 @@
   "dependencies": {
     "@google/generative-ai": "^0.24.1",
     "@monaco-editor/react": "^4.6.0",
-    "electron-updater": "^6.6.2",
+    "electron-updater": "^6.8.9",
     "openscad-wasm": "^0.0.4",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
